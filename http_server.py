@@ -32,6 +32,7 @@ workspace_api_url = config.get("workspace_url", "https://p3.theseed.org/services
 service_api_url = config.get("service_api_url", "https://p3.theseed.org/services/app_service")
 similar_genome_finder_api_url = config.get("similar_genome_finder_api_url", service_api_url)
 authentication_url = config.get("authentication_url", "https://user.patricbrc.org/authenticate")
+openid_config_url = config.get("openid_config_url", "https://dev-7.bv-brc.org")
 port = config.get("port", 12010)
 mcp_url = config.get("mcp_url", "127.0.0.1")
 
@@ -68,7 +69,7 @@ async def openid_configuration_route(request) -> JSONResponse:
     """
     Serves the OIDC discovery document that ChatGPT expects.
     """
-    return openid_configuration(request)
+    return openid_configuration(request, openid_config_url)
 
 @mcp.custom_route("/oauth2/register", methods=["POST"])
 async def oauth2_register_route(request) -> JSONResponse:

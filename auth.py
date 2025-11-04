@@ -29,18 +29,17 @@ def get_registered_client(client_id: str) -> dict | None:
     """
     return registered_clients.get(client_id)
 
-def openid_configuration(request) -> JSONResponse:
+def openid_configuration(request, openid_config_url: str) -> JSONResponse:
     """
     Serves the OIDC discovery document that ChatGPT expects.
     """
     print("Query params:", dict(request.query_params))
     print("Request path:", request.url.path)
-    url = "https://dev-7.bv-brc.org"
     config = {
             "issuer": "https://www.bv-brc.org",
-            "authorization_endpoint": f"{url}/oauth2/authorize",
-            "token_endpoint": f"{url}/oauth2/token",
-            "registration_endpoint": f"{url}/oauth2/register", # 1
+            "authorization_endpoint": f"{openid_config_url}/oauth2/authorize",
+            "token_endpoint": f"{openid_config_url}/oauth2/token",
+            "registration_endpoint": f"{openid_config_url}/oauth2/register", # 1
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code"],
             "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
