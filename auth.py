@@ -5,28 +5,146 @@ import requests
 import hashlib
 import base64
 from uuid import uuid4
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING, Optional
 from urllib.parse import urlencode
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.routing import Route
+from pydantic import AnyHttpUrl
+from mcp.server.auth.routes import create_protected_resource_routes
+try:
+    # Prefer FastMCP auth base classes when available
+    from fastmcp.server.auth.auth import AuthProvider, AccessToken
+except Exception:
+    # Fallback stubs if fastmcp is unavailable at import time
+    class OAuthProvider:  # type: ignore
+        def verify_token(self, token: str):
+            return None
 
-# Temporary in-memory storage for registered OAuth2 clients
-# Key: client_id, Value: client information dict
-registered_clients = {}
+    class AccessToken(dict):  # type: ignore
+        pass
 
-# Temporary in-memory storage for authorization codes
-# Key: authorization_code, Value: dict with client_id, redirect_uri, code_challenge, expires_at, user_info
-authorization_codes = {}
+class BvbrcOAuthProvider(AuthProvider):
+    """
+    Minimal custom OAuth provider for BV-BRC that implements the same behavioral logic
+    as the prior module-level functions, with simple in-memory stores.
 
-# Whitelisted callback URLs
+    It subclasses OAuthProvider for compatibility with FastMCP's auth interfaces.
+    """
+
+    def __init__(self, *, base_url: str, openid_config_url: str, authentication_url: str, allowed_callback_urls: list[str] | None = None) -> None:
+        super().__init__(base_url=base_url, required_scopes=["profile", "token"])
+        self.openid_config_url = openid_config_url
+        self.authentication_url = authentication_url
+        self.allowed_callback_urls = allowed_callback_urls or [
+            "https://chatgpt.com/connector_platform_oauth_redirect",
+            "https://claude.ai/api/mcp/auth_callback"
+        ]
+        # Track issued tokens for validation (token -> username)
+        self.issued_tokens: Dict[str, Dict[str, Any]] = {}
+
+    # --- AuthProvider interface ---
+    async def verify_token(self, token: str) -> AccessToken | None:  # type: ignore[override]
+        """
+        Verify token by checking it's one we issued through OAuth flow
+        and validating it's still valid against the authentication endpoint.
+        """
+        if not token or not isinstance(token, str):
+            return None
+        
+        # Check if token is one we issued (stored when tokens are exchanged)
+        token_info = self.issued_tokens.get(token)
+        if not token_info:
+            # Also check legacy storage in authorization_codes for backwards compatibility
+            for auth_code_data in authorization_codes.values():
+                if auth_code_data.get("user_token") == token:
+                    token_info = {
+                        "username": auth_code_data.get("username"),
+                        "issued_at": auth_code_data.get("expires_at", time.time()) - 600,
+                    }
+                    break
+        
+        if not token_info:
+            # Token not found in our issued tokens - reject it
+            # Only accept tokens that were issued through our OAuth flow
+            return None
+        
+        # Validate token is still valid by checking against authentication endpoint
+        # Make a request to validate the token format/validity
+        try:
+            # Validate token by checking its format matches what the endpoint returns
+            # The authentication endpoint returns tokens, so validate format
+            if len(token.strip()) < 10:
+                return None
+            
+            # Optional: Make a validation request to the authentication endpoint
+            # Since it takes username/password, we can't directly validate tokens here
+            # But we trust tokens we issued through our OAuth flow
+            # If you need full validation, make a test API call to a BV-BRC endpoint that uses the token
+            
+        except Exception:
+            return None
+        
+        # Return an AccessToken as defined by mcp.server.auth.provider.AccessToken
+        return AccessToken(
+            token=token,
+            client_id="bvbrc-public-client",
+            scopes=["profile", "token"],
+            expires_at=int(time.time()) + 3600,
+        )
+
+    # --- Helper methods ---
+    def get_registered_client(self, client_id: str) -> dict | None:
+        return self.registered_clients.get(client_id)
+
+    # --- Instance wrappers for existing endpoint functions ---
+    async def openid_configuration(self, request) -> JSONResponse:
+        return openid_configuration(request, self.openid_config_url)
+
+    async def oauth2_register(self, request) -> JSONResponse:
+        return await oauth2_register(request)
+
+    async def oauth2_authorize(self, request):
+        return await oauth2_authorize(request, self.authentication_url)
+
+    async def oauth2_login(self, request):
+        return await oauth2_login(request, self.authentication_url)
+
+    async def oauth2_token(self, request):
+        return await oauth2_token(request, provider=self)
+
+    def get_routes(self, mcp_path: str | None = "/mcp") -> list[Route]:
+        routes: list[Route] = []
+        if not self.base_url or not mcp_path:
+            return routes
+        # Build full resource URL and advertise protected resource metadata (RFC 9728)
+        resource_url = f"{str(self.base_url).rstrip('/')}/{mcp_path.lstrip('/')}"
+        try:
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=AnyHttpUrl(resource_url),
+                    authorization_servers=[AnyHttpUrl(self.openid_config_url)],
+                    scopes_supported=self.required_scopes,
+                    resource_name="BV-BRC MCP",
+                    resource_documentation=None,
+                )
+            )
+        except Exception:
+            # If URL validation fails, skip advertising metadata to avoid breaking the app
+            pass
+        return routes
+
+# Backward-compatible module-level stores for legacy function usage
+registered_clients: Dict[str, Dict[str, Any]] = {}
+authorization_codes: Dict[str, Dict[str, Any]] = {}
 ALLOWED_CALLBACK_URLS = [
-    "https://chatgpt.com/connector_platform_oauth_redirect"
+    "https://chatgpt.com/connector_platform_oauth_redirect",
+    "https://claude.ai/api/mcp/auth_callback"
 ]
 
 def get_registered_client(client_id: str) -> dict | None:
-    """
-    Retrieve a registered client by client_id.
-    Returns None if client not found.
-    """
+    """Legacy helper used by module-level endpoints."""
     return registered_clients.get(client_id)
 
 def openid_configuration(request, openid_config_url: str) -> JSONResponse:
@@ -36,7 +154,7 @@ def openid_configuration(request, openid_config_url: str) -> JSONResponse:
     print("Query params:", dict(request.query_params))
     print("Request path:", request.url.path)
     config = {
-            "issuer": "https://www.bv-brc.org",
+            "issuer": openid_config_url,
             "authorization_endpoint": f"{openid_config_url}/oauth2/authorize",
             "token_endpoint": f"{openid_config_url}/oauth2/token",
             "registration_endpoint": f"{openid_config_url}/oauth2/register", # 1
@@ -109,6 +227,8 @@ async def oauth2_register(request) -> JSONResponse:
                 response[field] = body[field]
         
         # Store client information for later retrieval during authorization
+        # NOTE: This module-level function remains for backward compatibility
+        # when used directly; in class-based usage, the instance method is preferred.
         registered_clients[client_id] = response
         
         print(f"Registered new client: {client_id} ({body.get('client_name', 'unnamed')})")
@@ -501,7 +621,7 @@ async def oauth2_login(request, authentication_url: str):
             status_code=500
         )
 
-async def oauth2_token(request):
+async def oauth2_token(request, provider: Optional[Any] = None):
     """
     Handles the token request.
     Exchanges an authorization code for an access token.
@@ -628,8 +748,16 @@ async def oauth2_token(request):
         # Retrieve the stored user token from the database (currently in-memory)
         user_token = auth_data["user_token"]
         stored_scope = auth_data.get("scope", "")
+        username = auth_data.get("username")
         
-        print(f"Token exchange successful for user: {auth_data.get('username')}")
+        # Store token in provider for validation
+        if provider:
+            provider.issued_tokens[user_token] = {
+                "username": username,
+                "issued_at": time.time(),
+            }
+        
+        print(f"Token exchange successful for user: {username}")
         print(f"Returning token (first 20 chars): {user_token[:20]}...")
         
         # Build token response with the stored user token

@@ -15,13 +15,7 @@ from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
 import json
 import sys
 import os
-from auth import (
-    openid_configuration, 
-    oauth2_register, 
-    oauth2_authorize, 
-    oauth2_login, 
-    oauth2_token
-)
+from auth import BvbrcOAuthProvider
 
 # Load configuration
 with open("config.json", "r") as f:
@@ -45,18 +39,28 @@ workspace_api = JsonRpcCaller(workspace_api_url)
 service_api = JsonRpcCaller(service_api_url)
 similar_genome_finder_api = JsonRpcCaller(similar_genome_finder_api_url)
 
-# Create FastMCP server
-mcp = FastMCP("BVBRC Consolidated MCP Server")
+# Publicly reachable base URL for discovery and metadata
+public_base_url = os.environ.get("PUBLIC_BASE_URL") or openid_config_url
+
+# Initialize OAuth provider (class-based) with advertised base_url
+oauth = BvbrcOAuthProvider(
+    base_url=public_base_url,
+    openid_config_url=openid_config_url,
+    authentication_url=authentication_url,
+)
+
+# Create FastMCP server with auth provider so /mcp is protected by FastMCP
+mcp = FastMCP("BVBRC Consolidated MCP Server", auth=oauth)
 
 # Register all tools from the three modules
 print("Registering data tools...", file=sys.stderr)
-#register_data_tools(mcp, base_url)
+register_data_tools(mcp, base_url)
 
 print("Registering service tools...", file=sys.stderr)
 register_service_tools(mcp, service_api, similar_genome_finder_api, token_provider)
 
 print("Registering workspace tools...", file=sys.stderr)
-#register_workspace_tools(mcp, workspace_api, token_provider)
+register_workspace_tools(mcp, workspace_api, token_provider)
 
 # Add health check tool
 @mcp.tool()
@@ -70,7 +74,22 @@ async def openid_configuration_route(request) -> JSONResponse:
     """
     Serves the OIDC discovery document that ChatGPT expects.
     """
-    return openid_configuration(request, openid_config_url)
+    return await oauth.openid_configuration(request)
+
+# OAuth Authorization Server metadata (well-known)
+@mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+async def oauth_as_metadata(request) -> JSONResponse:
+    return JSONResponse({
+        "issuer": public_base_url,
+        "authorization_endpoint": f"{public_base_url}/oauth2/authorize",
+        "token_endpoint": f"{public_base_url}/oauth2/token",
+        "registration_endpoint": f"{public_base_url}/oauth2/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
+        "code_challenge_methods_supported": ["S256"],
+        "scopes_supported": ["profile", "token"],
+    })
 
 @mcp.custom_route("/oauth2/register", methods=["POST"])
 async def oauth2_register_route(request) -> JSONResponse:
@@ -78,7 +97,7 @@ async def oauth2_register_route(request) -> JSONResponse:
     Registers a new client with the OAuth2 server.
     Implements RFC 7591 OAuth 2.0 Dynamic Client Registration.
     """
-    return await oauth2_register(request)
+    return await oauth.oauth2_register(request)
 
 @mcp.custom_route("/oauth2/authorize", methods=["GET"])
 async def oauth2_authorize_route(request):
@@ -86,7 +105,7 @@ async def oauth2_authorize_route(request):
     Authorization endpoint - displays login page for user authentication.
     This is where ChatGPT redirects the user to log in.
     """
-    return await oauth2_authorize(request, authentication_url)
+    return await oauth.oauth2_authorize(request)
 
 @mcp.custom_route("/oauth2/login", methods=["POST"])
 async def oauth2_login_route(request):
@@ -95,7 +114,7 @@ async def oauth2_login_route(request):
     Authenticates the user and generates an authorization code.
     Redirects back to ChatGPT's callback URL with the code.
     """
-    return await oauth2_login(request, authentication_url)
+    return await oauth.oauth2_login(request)
 
 @mcp.custom_route("/oauth2/token", methods=["POST"])
 async def oauth2_token_route(request):
@@ -104,7 +123,7 @@ async def oauth2_token_route(request):
     Exchanges an authorization code for an access token.
     Retrieves the stored user token using the authorization code.
     """
-    return await oauth2_token(request)
+    return await oauth.oauth2_token(request)
 
 def main() -> int:
     print(f"Starting BVBRC Consolidated MCP Server on port {port}...", file=sys.stderr)
