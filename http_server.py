@@ -63,7 +63,7 @@ print("Registering workspace tools...", file=sys.stderr)
 register_workspace_tools(mcp, workspace_api, token_provider)
 
 # Add health check tool
-@mcp.tool()
+# @mcp.tool()
 def health_check() -> str:
     """Health check endpoint"""
     return '{"status": "healthy", "service": "bvbrc-consolidated-mcp"}'

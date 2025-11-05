@@ -28,7 +28,8 @@ def register_data_tools(mcp: FastMCP, base_url: str):
 
     @mcp.tool()
     def query_collection(collection: str, filter_str: str = "",
-                          select: Optional[str] = None, sort: Optional[str] = None) -> str:
+                          select: Optional[str] = None, sort: Optional[str] = None,
+                          cursorId: Optional[str] = None, countOnly: bool = False) -> str:
         """
         Query BV-BRC data directly using collection name and Solr query expression.
         
@@ -37,9 +38,13 @@ def register_data_tools(mcp: FastMCP, base_url: str):
             filter_str: Solr query expression (e.g., "genome_id:123.45" or "species:\"Escherichia coli\"")
             select: Comma-separated list of fields to select (optional)
             sort: Field to sort by (optional)
+            cursorId: Cursor ID for pagination (optional, use "*" or omit for first page)
+            countOnly: If True, only return the total count without data (optional, default False)
         
         Returns:
-            Formatted query results
+            JSON string with query results:
+            - If countOnly is True: {"count": <total_count>}
+            - Otherwise: {"count": <batch_count>, "results": [...], "nextCursorId": <str|None>}
         """
         options = {}
         if select:
@@ -48,11 +53,9 @@ def register_data_tools(mcp: FastMCP, base_url: str):
             options["sort"] = sort
         
         try:
-            result, count = query_direct(collection, filter_str, options, _base_url)
-            return json.dumps({
-                "count": count,
-                "results": result
-            }, indent=2)
+            result = query_direct(collection, filter_str, options, _base_url, 
+                                 cursorId=cursorId, countOnly=countOnly)
+            return json.dumps(result, indent=2)
         except Exception as e:
             return json.dumps({
                 "error": f"Error querying {collection}: {str(e)}"
