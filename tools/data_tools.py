@@ -41,6 +41,9 @@ def register_data_tools(mcp: FastMCP, base_url: str):
             cursorId: Cursor ID for pagination (optional, use "*" or omit for first page)
             countOnly: If True, only return the total count without data (optional, default False)
         
+        Note:
+            For counting only, use the minimum number of fields in the select parameter.
+            
         Returns:
             JSON string with query results:
             - If countOnly is True: {"count": <total_count>}
