@@ -42,6 +42,45 @@ A unified Model Context Protocol (MCP) server:
 - `get_genome_group_ids`: Get genome IDs from a group
 - `get_feature_group_ids`: Get feature IDs from a group
 
+## Connecting Your MCP Server to ChatGPT
+
+### Step 1: Enable Developer Mode
+
+1. Click the **plus** next to "Ask me anything"
+2. Click **"Add sources"**
+3. You should now see "Sources" and "Add" below your chat box
+4. Click the **down arrow** next to "Add"
+5. Click **"Connect more"**
+6. Scroll down to **Advanced Settings**
+7. Click the toggle next to **Developer Mode** (must be "on")
+8. Click **Back**
+
+### Step 2: Create MCP Server Connection
+
+1. In the upper right-hand corner, click **"Create"**
+2. Fill in the following:
+   - **Icon**: Optional
+   - **Name**: BV-BRC MCP
+   - **Description**: ''
+   - **MCP Server URL**: https://dev-7.bv-brc.org/mcp
+3. **Authentication**: 
+   - Leave authentication on OAuth
+4. Check the box if you **Trust this application**
+5. Click **"Create"**
+
+### Step 3: Connect to Your Server
+
+1. You should now see 'BV-BRC MCP' under **"Enabled apps & connectors"**
+2. Click the 'X' in the top left to go back to the chat screen
+3. In a **New Chat**, click the '+' button and hover over **More**
+  - You should see **BV-BRC MCP** as an option under **Canvas**
+4. Select **BV-BRC MCP**
+
+
+### Note
+
+When writing a query, mention the action you are testing.
+
 ## Installation
 
 Run the installation script, which will create the virtual python environment and install a data api and remaining requirements
