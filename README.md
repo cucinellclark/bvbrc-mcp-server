@@ -5,7 +5,8 @@ A unified Model Context Protocol (MCP) server:
 - **Service Tools**: Submit and manage BVBRC analysis jobs (assembly, annotation, BLAST, etc.)
 - **Workspace Tools**: Manage BVBRC workspace files, folders, and groups
 
-## Features
+<details>
+<summary><h2>Features</h2></summary>
 
 ### Data Tools
 - `query_collection`: Query any BVBRC Solr collection with flexible filtering
@@ -41,6 +42,8 @@ A unified Model Context Protocol (MCP) server:
 - `create_feature_group`: Create feature groups
 - `get_genome_group_ids`: Get genome IDs from a group
 - `get_feature_group_ids`: Get feature IDs from a group
+
+</details>
 
 <details>
 <summary><h2>Connecting Your MCP Server to ChatGPT</h2></summary>
