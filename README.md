@@ -59,7 +59,7 @@ Creates mcp_config.json
 
 Paste its contents into your chatbots mcp config file
 
-For instructions on locating your chatbot's MCP configuration file, see [this guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
+For instructions on locating claude's MCP configuration file, see [this guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
 
 ## Remote server development
 Configure the server (for remote servers):
