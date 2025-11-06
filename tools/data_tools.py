@@ -71,10 +71,10 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         if _token_provider:
             auth_token = _token_provider.get_token(token)
             if auth_token:
-                headers = {"Authorization": 'Bearer ' + auth_token}
+                headers = {"Authorization": auth_token}
         elif token:
             # Fallback: if token is provided directly and no token_provider, use it
-            headers = {"Authorization": 'Bearer ' + token}
+            headers = {"Authorization": token}
         
         try:
             result = query_direct(collection, filter_str, options, _base_url, 
