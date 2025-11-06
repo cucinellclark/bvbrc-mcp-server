@@ -68,7 +68,7 @@ Paste its contents into your chatbots mcp config file
 ## Remote server development
 Configure the server (for remote servers):
 
-`config.json` to set:
+Edit config.json to set:
 - API URLs (workspace, service, data)
 - Server host and port
 - Authentication URL
