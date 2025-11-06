@@ -83,6 +83,29 @@ A Model Context Protocol (MCP) server for the Bacterial-Viral Bioinformatics res
 </details>
 
 <details>
+<summary><h2>Connecting the BV-BRC MCP Server to Claude</h2></summary>
+
+1. Click **account** in bottom left and go to **settings**
+
+2. Click **'Connectors'**
+
+3. Click **'Add custom connector'**
+
+4. Fill in the following:
+   - **Name**: BV-BRC MCP
+   - **Remote MCP server URL**: https://dev-7.bv-brc.org/mcp
+
+5. Click **'Add'**
+
+6. Then click **'Connect'**
+
+7. Log into BV-BRC
+
+8. It's now available to use in a new chat
+
+</details>
+
+<details>
 <summary><h2>Installing as a Claude Extension</h2></summary>
 
 1. Install the MCP Builder CLI:
