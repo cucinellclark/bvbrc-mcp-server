@@ -48,12 +48,6 @@ def register_data_tools(mcp: FastMCP, base_url: str):
         if sort:
             options["sort"] = sort
 
-        # Do query translation here.
-        if collection == "sp_gene":
-            m = re.search(r"property:virulence", filter_str, re.IGNORECASE)
-            if m:
-                filter_str = filter_str[:m.start()] + "property:\"Virulence Factor\"" + filter_str[m.end():]
-
         try:
             result, count = query_direct(collection, filter_str, options, _base_url)
             return json.dumps({
