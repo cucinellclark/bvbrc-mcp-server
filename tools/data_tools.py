@@ -26,7 +26,7 @@ def register_data_tools(mcp: FastMCP, base_url: str):
     global _base_url
     _base_url = base_url
 
-    @mcp.tool()
+    @mcp.tool(annotations={"readOnlyHint": True})
     def query_collection(collection: str, filter_str: str = "",
                           select: Optional[str] = None, sort: Optional[str] = None) -> str:
         """
