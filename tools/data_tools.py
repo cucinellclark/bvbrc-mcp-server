@@ -82,6 +82,7 @@ def register_data_tools(mcp: FastMCP, base_url: str):
         Returns:
             String with general query instructions and formatting guidelines
         """
+        print("Fetching general query instructions.")
         return query_info()
 
     @mcp.tool()
@@ -92,5 +93,6 @@ def register_data_tools(mcp: FastMCP, base_url: str):
         Returns:
             String with the available collections
         """
+        print("Fetching available collections.")
         return list_solr_collections()
 
