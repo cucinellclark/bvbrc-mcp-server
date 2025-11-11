@@ -25,17 +25,64 @@ def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str) -> List[str]:
     except Exception as e:
         return [f"Error listing workspace: {str(e)}"]
 
-def workspace_search(api: JsonRpcCaller, paths: List[str] = None, search_term: str = None, token: str = None) -> str:
+def workspace_search(api: JsonRpcCaller, paths: List[str] = None, search_term: str = None, file_extension: str = None, token: str = None) -> str:
     """
-    Search the workspace for a given term.
+    Search the workspace for a given term and/or file extension.
+    
+    Args:
+        api: JsonRpcCaller instance configured with workspace URL and token
+        paths: List of paths to search
+        search_term: Optional term to search for in file names
+        file_extension: Optional file extension to filter by (e.g., 'py', 'txt', 'json'). 
+                       Can include or exclude the leading dot.
+        token: Authentication token for API calls
+    Returns:
+        List of matching workspace items
     """
     if not paths:
         user_id = _get_user_id_from_token(token)
         if not user_id:
             return [f"Error searching workspace: unable to derive user id from token"]
         paths = [f"/{user_id}/home"]
-    if not search_term:
-        return [f"Error searching workspace: search_term parameter is required"]
+    
+    # At least one of search_term or file_extension must be provided
+    if not search_term and not file_extension:
+        return [f"Error searching workspace: at least one of search_term or file_extension parameter is required"]
+    
+    # Build query conditions based on what's provided
+    query_conditions = {}
+    conditions = []
+    
+    # Add search term condition if provided
+    if search_term:
+        conditions.append({
+            "name": {
+                "$regex": search_term,
+                "$options": "i"
+            }
+        })
+    
+    # Add file extension filter if provided
+    if file_extension:
+        # Normalize extension: remove leading dot if present, add it back for regex
+        ext = file_extension.lstrip('.')
+        # Create regex pattern that matches files ending with the extension
+        # This ensures we match the extension at the end of the filename
+        ext_pattern = f"\\.{ext}$"
+        conditions.append({
+            "name": {
+                "$regex": ext_pattern,
+                "$options": "i"
+            }
+        })
+    
+    # Build final query conditions
+    if len(conditions) == 1:
+        # Single condition, no need for $and
+        query_conditions = conditions[0]
+    else:
+        # Multiple conditions, use $and
+        query_conditions = {"$and": conditions}
     
     try:
         result = api.call("Workspace.ls", {
@@ -44,12 +91,7 @@ def workspace_search(api: JsonRpcCaller, paths: List[str] = None, search_term: s
             "excludeObjects": False,
             "includeSubDirs": True,
             "paths": paths,
-            "query": {
-                "name": {
-                    "$regex": search_term,
-                    "$options": "i"
-                }
-            }
+            "query": query_conditions
         },1, token)
         return result
     except Exception as e:
