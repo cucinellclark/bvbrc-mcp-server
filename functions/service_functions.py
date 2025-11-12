@@ -343,7 +343,6 @@ def start_tnseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None, 
 def start_bacterial_genome_tree_app(api: JsonRpcCaller, token: str = None, user_id: str = None, output_path: str = None, output_file: str = None, genome_ids: List[str] = None, genome_groups: List[str] = None, optional_genome_ids: List[str] = None, genome_metadata_fields: str = None, number_of_genes: int = 20, bootstraps: int = 100, max_genomes_missing: int = 0, max_allowed_dups: int = 0) -> str:
     app_name = "CodonTree"
     try:
-        # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
         params = _filter_none_params({
             "output_path": output_path,

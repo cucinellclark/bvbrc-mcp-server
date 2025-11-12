@@ -26,7 +26,7 @@ class JsonRpcCaller:
         
         Args:
             method: The RPC method name to call
-            params: Optional parameters for the method
+            params: Optional parameters for the method (can be dict for workspace calls or list for service calls)
             request_id: Request ID for the JSON-RPC call
             token: Authentication token for API calls
         Returns:
@@ -36,8 +36,16 @@ class JsonRpcCaller:
             requests.RequestException: If the HTTP request fails
             ValueError: If the response contains an error
         """
-
-        params['base_url'] = 'https://www.patricbrc.org'
+        
+        # Handle different param formats:
+        # - Service functions pass params as a list: [app_name, params_dict, metadata_dict]
+        # - Workspace functions pass params as a dict: {key: value, ...}
+        print('params: ', params)
+        if params is not None and isinstance(params, list) and len(params) >= 2 and isinstance(params[1], dict):
+            # Service function format - add base_url to params dict if not present
+            if 'base_url' not in params[1]:
+                params[1]['base_url'] = 'https://www.patricbrc.org'
+        print('here1')
 
         payload = {
             "jsonrpc": "2.0",
@@ -45,35 +53,37 @@ class JsonRpcCaller:
             "id": request_id,
             "params": params,
         }
-
+        print('here2')
         if token:
             self.session.headers.update({
                 'Authorization': f'{token}'
             })
-
+        print('here3')
         try:
             response = self.session.post(
                 self.service_url,
                 data=json.dumps(payload),
                 timeout=30
             )
-
+            print('here4')
             response.raise_for_status()
             
             result = response.json()
-            
+            print('here5')
             # Check for JSON-RPC errors
             if "error" in result:
                 raise ValueError(f"JSON-RPC error: {result['error']}")
             
             return result.get("result", {})
         
-        except Exception as e:
-            print(f"error: {e.response.text}")
+
         except requests.RequestException as e:
             raise requests.RequestException(f"HTTP request failed: {e}")
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON response: {e}")
+        except Exception as e:
+            print(f"error: {e}")
+            return []
 
     
     def close(self):
