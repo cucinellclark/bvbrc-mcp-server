@@ -6,6 +6,7 @@ This module contains MCP tools for querying MVP (Minimum Viable Product) data fr
 """
 
 import json
+import re
 from typing import Optional
 
 from fastmcp import FastMCP
@@ -26,7 +27,7 @@ def register_data_tools(mcp: FastMCP, base_url: str):
     global _base_url
     _base_url = base_url
 
-    @mcp.tool()
+    @mcp.tool(annotations={"readOnlyHint": True})
     def query_collection(collection: str, filter_str: str = "",
                           select: Optional[str] = None, sort: Optional[str] = None) -> str:
         """
@@ -45,14 +46,22 @@ def register_data_tools(mcp: FastMCP, base_url: str):
         Returns:
             Formatted query results
         """
+        print(f"Querying collection: {collection}")
         options = {}
         if select:
             options["select"] = select.split(",")
         if sort:
             options["sort"] = sort
-        
+        # If we have a genome_feature query, we need to insure only patric features come back.
+        if not filter_str:
+            filter_str = "patric_id:*"
+        elif collection == "genome_feature" and not re.search(r"\bpatric_id:", filter_str):
+            filter_str += " AND patric_id:*"
+        print(f"Filter is {filter_str}")
+
         try:
             result, count = query_direct(collection, filter_str, options, _base_url)
+            print(f"Query returned {len(result)} of {count} results.")
             return json.dumps({
                 "count": count,
                 "results": result
@@ -62,7 +71,7 @@ def register_data_tools(mcp: FastMCP, base_url: str):
                 "error": f"Error querying {collection}: {str(e)}"
             }, indent=2)
     
-    @mcp.tool()
+    @mcp.tool(annotations={"readOnlyHint": True})
     def solr_collection_parameters(collection: str) -> str:
         """
         Get parameters for a given collection.
@@ -75,7 +84,7 @@ def register_data_tools(mcp: FastMCP, base_url: str):
         """
         return lookup_parameters(collection)
 
-    @mcp.tool()
+    @mcp.tool(annotations={"readOnlyHint": True})
     def solr_query_instructions() -> str:
         """
         Get general query instructions for all collections.
@@ -83,9 +92,10 @@ def register_data_tools(mcp: FastMCP, base_url: str):
         Returns:
             String with general query instructions and formatting guidelines
         """
+        print("Fetching general query instructions.")
         return query_info()
 
-    @mcp.tool()
+    @mcp.tool(annotations={"readOnlyHint": True})
     def solr_collections() -> str:
         """
         Get all available collections.
@@ -93,5 +103,6 @@ def register_data_tools(mcp: FastMCP, base_url: str):
         Returns:
             String with the available collections
         """
+        print("Fetching available collections.")
         return list_solr_collections()
 
