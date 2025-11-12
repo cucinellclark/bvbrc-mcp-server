@@ -59,7 +59,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             genome_name field to search for an organism by name. Note that antibiotic names are case-sensitive
             and stored in all lower case (e.g. "methicillin").
 
-            In the filter string, any field value with spaces in it must be enclosed in double quotes or parentheses.
+            In the filter string, any field value with spaces in it must be enclosed in double quotes (e.g. "field value").
             
             The solr_collection_parameters tool lists all the field names for each collection. This tool should
             be checked to avoid Bad Request errors.
@@ -98,7 +98,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         try:
             result = query_direct(collection, filter_str, options, _base_url, 
                                  headers=headers, cursorId=cursorId, countOnly=countOnly)
-            print(f"Query returned {len(result)} results.")
+            print(f"Query returned {result['count']} results.")
             return json.dumps(result, indent=2)
         except Exception as e:
             return json.dumps({
