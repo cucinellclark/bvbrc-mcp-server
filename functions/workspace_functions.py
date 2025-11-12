@@ -3,6 +3,7 @@ from typing import List, Any
 import requests
 import os
 import json
+import sys
 
 def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str) -> List[str]:
     """
@@ -294,16 +295,20 @@ def workspace_create_genome_group(api: JsonRpcCaller, genome_group_path: str, ge
     Create a genome group in the workspace using the JSON-RPC API.
     """
     genome_group_name = genome_group_path.split('/')[-1]
+    print("genome_id_list", genome_id_list, file=sys.stderr)
+    print("genome_id_list type", type(genome_id_list), file=sys.stderr)
+    print("genome_id_list length", len(genome_id_list) if isinstance(genome_id_list, list) else "N/A", file=sys.stderr)
     try:
         content = {
             'id_list': {
                 'genome_id': genome_id_list
-            }, 
+            },
             'name': genome_group_name
         }
-        result = api.call("Workspace.create", {
+        print("content", json.dumps(content, indent=2), file=sys.stderr)
+        result = api.call("Workspace.create", [{
             "objects": [[genome_group_path, 'genome_group', {}, content]]
-        },1, token)
+        }],1, token)
         return result
     except Exception as e:
         return [f"Error creating genome group: {str(e)}"]
