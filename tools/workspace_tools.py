@@ -9,6 +9,7 @@ from common.json_rpc import JsonRpcCaller
 from common.token_provider import TokenProvider
 import json
 from typing import List, Optional
+import sys
 
 def extract_userid_from_token(token: str = None) -> str:
     """
@@ -250,8 +251,20 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
                 genome_group_path = f"{get_user_home_path(user_id)}/{genome_group_path}"
 
         print(f"Creating genome group: {genome_group_name}, user_id: {user_id}, path: {genome_group_path}")
+        print("genome_id_list (raw)", repr(genome_id_list), file=sys.stderr)
+        print("genome_id_list type", type(genome_id_list), file=sys.stderr)
 
-        result = workspace_create_genome_group(api, genome_group_path, genome_id_list, auth_token)
+        # Convert comma-separated string to list
+        if isinstance(genome_id_list, str):
+            genome_id_list_parsed = [gid.strip() for gid in genome_id_list.split(',') if gid.strip()]
+        elif isinstance(genome_id_list, list):
+            genome_id_list_parsed = [str(gid).strip() for gid in genome_id_list if gid]
+        else:
+            return f"Error: genome_id_list must be a string or list, got {type(genome_id_list)}"
+        
+        print("genome_id_list_parsed", genome_id_list_parsed, file=sys.stderr)
+        print("genome_id_list_parsed length", len(genome_id_list_parsed), file=sys.stderr)
+        result = workspace_create_genome_group(api, genome_group_path, genome_id_list_parsed, auth_token)
         return str(result)
 
     @mcp.tool()

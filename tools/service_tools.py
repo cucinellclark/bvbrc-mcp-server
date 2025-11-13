@@ -4,7 +4,7 @@ BVBRC Service MCP Tools
 This module contains all the MCP tool functions for the BVBRC Service MCP Server.
 All tools are registered with the FastMCP server instance.
 """
-
+import sys
 from fastmcp import FastMCP
 from common.json_rpc import JsonRpcCaller
 from functions.service_functions import (
@@ -129,11 +129,13 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
     @mcp.tool(name="blast", description="Get parameters from get_service_info tool.")
     def submit_blast_app(token: Optional[str] = None, input_type: str = None, input_source: str = None, input_fasta_data: str = None, input_id_list: List[str] = None, input_fasta_file: str = None, input_feature_group: str = None, input_genome_group: str = None, db_type: str = None, db_source: str = None, db_fasta_data: str = None, db_fasta_file: str = None, db_id_list: List[str] = None, db_feature_group: str = None, db_genome_group: str = None, db_genome_list: List[str] = None, db_taxon_list: List[str] = None, db_precomputed_database: str = None, blast_program: str = None, blast_evalue_cutoff: float = 1e-5, blast_max_hits: int = 300, blast_min_coverage: int = None, output_path: str = None, output_file: str = None) -> str:
         # Get the appropriate token
+        print("submit_blast_app called", file=sys.stdout)
         auth_token = token_provider.get_token(token)
         if not auth_token:
             return "Error: No authentication token available"
         
         user_id = extract_userid_from_token(auth_token)
+        print("user_id", user_id, file=sys.stdout)
         return start_blast_app(api, token=auth_token, user_id=user_id, input_type=input_type, input_source=input_source, input_fasta_data=input_fasta_data, input_id_list=input_id_list, input_fasta_file=input_fasta_file, input_feature_group=input_feature_group, input_genome_group=input_genome_group, db_type=db_type, db_source=db_source, db_fasta_data=db_fasta_data, db_fasta_file=db_fasta_file, db_id_list=db_id_list, db_feature_group=db_feature_group, db_genome_group=db_genome_group, db_genome_list=db_genome_list, db_taxon_list=db_taxon_list, db_precomputed_database=db_precomputed_database, blast_program=blast_program, blast_evalue_cutoff=blast_evalue_cutoff, blast_max_hits=blast_max_hits, blast_min_coverage=blast_min_coverage, output_path=output_path, output_file=output_file)
 
     @mcp.tool(name="primer_design", description="Get parameters from get_service_info tool.")

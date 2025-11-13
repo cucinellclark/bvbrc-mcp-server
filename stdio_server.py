@@ -56,6 +56,7 @@ register_workspace_tools(mcp, workspace_api, token_provider)
 @mcp.tool()
 def health_check() -> str:
     """Health check endpoint"""
+    print("Health check endpoint called", file=sys.stderr)
     return '{"status": "healthy", "service": "bvbrc-consolidated-mcp", "mode": "stdio"}'
 
 def main() -> int:
