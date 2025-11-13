@@ -360,6 +360,10 @@ def start_bacterial_genome_tree_app(api: JsonRpcCaller, token: str = None, user_
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        if isinstance(genome_metadata_fields, list):
+            genome_metadata_fields = ",".join(genome_metadata_fields)
+        if genome_groups and not genome_ids:
+            genome_ids = []
         params = _filter_none_params({
             "output_path": output_path,
             "output_file": output_file,
@@ -372,8 +376,11 @@ def start_bacterial_genome_tree_app(api: JsonRpcCaller, token: str = None, user_
             "max_genomes_missing": max_genomes_missing,
             "max_allowed_dups": max_allowed_dups
         })
-        data = [app_name, params, {}]
+        data = [app_name, params, { 'base_url': 'https://www.bv-brc.org' }]
+        print("data", data)
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -469,7 +476,7 @@ def start_taxonomic_classification_app(api: JsonRpcCaller, token: str = None, us
             "output_path": output_path,
             "output_file": output_file
         })
-        data = ["TaxonomicClassification", params, {}]
+        data = ["TaxonomicClassification", params, { 'base_url': 'https://www.bv-brc.org' }]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
         return result
     except Exception as e:

@@ -128,6 +128,8 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
             paths: Optional list of paths to search (relative to user's home directory). If empty or None, searches user home directory.
             file_extension: Optional file extension to filter by (e.g., 'py', 'txt', 'json'). Can include or exclude the leading dot.
                            At least one of search_term or file_extension must be provided.
+
+        Note: Paths are relative to the user's home directory. If no paths are provided, the search will be performed in the user's home directory.
         """
         if not search_term and not file_extension:
             return "Error: search_term or file_extension parameter is required"

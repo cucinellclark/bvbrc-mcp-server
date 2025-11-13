@@ -20,7 +20,7 @@ from functions.service_functions import (
     start_metacats_app, start_proteome_comparison_app, start_comparative_systems_app,
     start_docking_app, start_similar_genome_finder_app, get_service_info
 )
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Union
 
 
 def extract_userid_from_token(token: str = None) -> str:
@@ -170,8 +170,8 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
 
 # Phylogenomics Services
 
-    @mcp.tool(name="bacterial_genome_tree", description="Get parameters from get_service_info tool.")
-    def submit_bacterial_genome_tree_app(token: Optional[str] = None, output_path: str = None, output_file: str = None, genome_ids: List[str] = None, genome_groups: List[str] = None, optional_genome_ids: List[str] = None, genome_metadata_fields: str = None, number_of_genes: int = 20, bootstraps: int = 100, max_genomes_missing: int = 0, max_allowed_dups: int = 0) -> str:
+    @mcp.tool(name="bacterial_genome_tree", description="Tool to submit a bacterial genome tree analysis. Get parameters before using the bacterial genome tree app from the get_service_info tool.")
+    def submit_bacterial_genome_tree_app(token: Optional[str] = None, output_path: str = None, output_file: str = None, genome_ids: List[str] = None, genome_groups: List[str] = None, optional_genome_ids: List[str] = None, genome_metadata_fields: Union[str, List[str]] = None, number_of_genes: int = 20, bootstraps: int = 100, max_genomes_missing: int = 0, max_allowed_dups: int = 0) -> str:
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:

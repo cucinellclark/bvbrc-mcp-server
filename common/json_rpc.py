@@ -44,14 +44,12 @@ class JsonRpcCaller:
                 params_dict = {}
                 params_dict['base_url'] = 'https://www.patricbrc.org'
                 params = params_dict
-            elif type(params).__name__ == 'list':
-                # If params is a list, use it as-is (AppService.start_app2 format)
-                # Don't modify it, just pass through
+            elif isinstance(params, list):
                 pass
-            elif type(params).__name__ == 'dict':
+            elif isinstance(params, dict):
                 # If params is a dict, add base_url
                 params_dict = dict(params)  # Make a copy to avoid modifying the original
-                params_dict['base_url'] = 'https://www.patricbrc.org'
+                params_dict['base_url'] = 'https://www.bv-brc.org'
                 params = params_dict
             else:
                 # Convert other types to dict
@@ -67,6 +65,7 @@ class JsonRpcCaller:
             "id": request_id,
             "params": params,
         }
+        print("payload", payload)
 
         if token:
             self.session.headers.update({
