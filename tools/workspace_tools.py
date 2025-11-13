@@ -9,6 +9,7 @@ from common.json_rpc import JsonRpcCaller
 from common.token_provider import TokenProvider
 import json
 from typing import List, Optional
+import sys
 
 def extract_userid_from_token(token: str = None) -> str:
     """
@@ -118,16 +119,29 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         return str(result)
 
     @mcp.tool()
-    def workspace_search_tool(token: Optional[str] = None, search_term: str = None, paths: List[str] = None) -> str:
-        """Search the workspace for a given term.
+    def workspace_search_tool(token: Optional[str] = None, search_term: Optional[str] = None, paths: List[str] = None, file_extension: Optional[str] = None) -> str:
+        """Search the workspace for a given term and/or file extension.
 
         Args:
             token: Authentication token (optional - will use default if not provided)
-            search_term: Term to search the workspace for.
+            search_term: Optional term to search the workspace for in file names.
             paths: Optional list of paths to search (relative to user's home directory). If empty or None, searches user home directory.
+            file_extension: Optional file extension to filter by (e.g., 'py', 'txt', 'json'). Can include or exclude the leading dot.
+                           At least one of search_term or file_extension must be provided.
+
+        Note: Paths are relative to the user's home directory. If no paths are provided, the search will be performed in the user's home directory.
         """
+        if not search_term and not file_extension:
+            return "Error: search_term or file_extension parameter is required"
+
+        if search_term and file_extension:
+            return "Error: only one of search_term or file_extension parameter can be provided"
+
         if not search_term:
-            return "Error: search_term parameter is required"
+            search_term = ""
+
+        if not file_extension:
+            file_extension = ""
 
         # Get the appropriate token (automatically checks Authorization header in HTTP mode)
         auth_token = token_provider.get_token(token)
@@ -138,8 +152,9 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         user_id = extract_userid_from_token(auth_token)
         paths = resolve_relative_paths(paths or [], user_id)
 
-        print(f"Searching in paths: {paths}, user_id: {user_id}, term: {search_term}")
-        result = workspace_search(api, paths, search_term, auth_token)
+        print(f"Searching in paths: {paths}, user_id: {user_id}, term: {search_term}, extension: {file_extension}", file=sys.stderr)
+        result = workspace_search(api, paths, search_term, file_extension, auth_token)
+        print(f"Search result: {result}", file=sys.stderr)  
         return str(result)
 
     @mcp.tool()
@@ -250,8 +265,20 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
                 genome_group_path = f"{get_user_home_path(user_id)}/{genome_group_path}"
 
         print(f"Creating genome group: {genome_group_name}, user_id: {user_id}, path: {genome_group_path}")
+        print("genome_id_list (raw)", repr(genome_id_list), file=sys.stderr)
+        print("genome_id_list type", type(genome_id_list), file=sys.stderr)
 
-        result = workspace_create_genome_group(api, genome_group_path, genome_id_list, auth_token)
+        # Convert comma-separated string to list
+        if isinstance(genome_id_list, str):
+            genome_id_list_parsed = [gid.strip() for gid in genome_id_list.split(',') if gid.strip()]
+        elif isinstance(genome_id_list, list):
+            genome_id_list_parsed = [str(gid).strip() for gid in genome_id_list if gid]
+        else:
+            return f"Error: genome_id_list must be a string or list, got {type(genome_id_list)}"
+        
+        print("genome_id_list_parsed", genome_id_list_parsed, file=sys.stderr)
+        print("genome_id_list_parsed length", len(genome_id_list_parsed), file=sys.stderr)
+        result = workspace_create_genome_group(api, genome_group_path, genome_id_list_parsed, auth_token)
         return str(result)
 
     @mcp.tool()

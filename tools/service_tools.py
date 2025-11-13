@@ -4,7 +4,7 @@ BVBRC Service MCP Tools
 This module contains all the MCP tool functions for the BVBRC Service MCP Server.
 All tools are registered with the FastMCP server instance.
 """
-
+import sys
 from fastmcp import FastMCP
 from common.json_rpc import JsonRpcCaller
 from functions.service_functions import (
@@ -20,7 +20,7 @@ from functions.service_functions import (
     start_metacats_app, start_proteome_comparison_app, start_comparative_systems_app,
     start_docking_app, start_similar_genome_finder_app, get_service_info
 )
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Union
 
 
 def extract_userid_from_token(token: str = None) -> str:
@@ -129,11 +129,13 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
     @mcp.tool(name="blast", description="Get parameters from get_service_info tool.")
     def submit_blast_app(token: Optional[str] = None, input_type: str = None, input_source: str = None, input_fasta_data: str = None, input_id_list: List[str] = None, input_fasta_file: str = None, input_feature_group: str = None, input_genome_group: str = None, db_type: str = None, db_source: str = None, db_fasta_data: str = None, db_fasta_file: str = None, db_id_list: List[str] = None, db_feature_group: str = None, db_genome_group: str = None, db_genome_list: List[str] = None, db_taxon_list: List[str] = None, db_precomputed_database: str = None, blast_program: str = None, blast_evalue_cutoff: float = 1e-5, blast_max_hits: int = 300, blast_min_coverage: int = None, output_path: str = None, output_file: str = None) -> str:
         # Get the appropriate token
+        print("submit_blast_app called", file=sys.stdout)
         auth_token = token_provider.get_token(token)
         if not auth_token:
             return "Error: No authentication token available"
         
         user_id = extract_userid_from_token(auth_token)
+        print("user_id", user_id, file=sys.stdout)
         return start_blast_app(api, token=auth_token, user_id=user_id, input_type=input_type, input_source=input_source, input_fasta_data=input_fasta_data, input_id_list=input_id_list, input_fasta_file=input_fasta_file, input_feature_group=input_feature_group, input_genome_group=input_genome_group, db_type=db_type, db_source=db_source, db_fasta_data=db_fasta_data, db_fasta_file=db_fasta_file, db_id_list=db_id_list, db_feature_group=db_feature_group, db_genome_group=db_genome_group, db_genome_list=db_genome_list, db_taxon_list=db_taxon_list, db_precomputed_database=db_precomputed_database, blast_program=blast_program, blast_evalue_cutoff=blast_evalue_cutoff, blast_max_hits=blast_max_hits, blast_min_coverage=blast_min_coverage, output_path=output_path, output_file=output_file)
 
     @mcp.tool(name="primer_design", description="Get parameters from get_service_info tool.")
@@ -168,8 +170,8 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
 
 # Phylogenomics Services
 
-    @mcp.tool(name="bacterial_genome_tree", description="Get parameters from get_service_info tool.")
-    def submit_bacterial_genome_tree_app(token: Optional[str] = None, output_path: str = None, output_file: str = None, genome_ids: List[str] = None, genome_groups: List[str] = None, optional_genome_ids: List[str] = None, genome_metadata_fields: str = None, number_of_genes: int = 20, bootstraps: int = 100, max_genomes_missing: int = 0, max_allowed_dups: int = 0) -> str:
+    @mcp.tool(name="bacterial_genome_tree", description="Tool to submit a bacterial genome tree analysis. Get parameters before using the bacterial genome tree app from the get_service_info tool.")
+    def submit_bacterial_genome_tree_app(token: Optional[str] = None, output_path: str = None, output_file: str = None, genome_ids: List[str] = None, genome_groups: List[str] = None, optional_genome_ids: List[str] = None, genome_metadata_fields: Union[str, List[str]] = None, number_of_genes: int = 20, bootstraps: int = 100, max_genomes_missing: int = 0, max_allowed_dups: int = 0) -> str:
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
@@ -210,8 +212,8 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
 
 # Metagenomics Services
 
-    @mcp.tool(name="taxonomic_classification", description="Get parameters from get_service_info tool.")
-    def submit_taxonomic_classification_app(token: Optional[str] = None, host_genome: str = "no_host", analysis_type: str = "16S", paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List[Dict] = None, database: str = "SILVA", save_classified_sequences: bool = False, save_unclassified_sequences: bool = False, confidence_interval: float = 0.1, output_path: str = None, output_file: str = None) -> str:
+    @mcp.tool(name="taxonomic_classification", description="Submits a taxonomic classification job against one or more metagenonic read libraries. Get parameters before using the taxonomic classification app from the get_service_info tool.")
+    def submit_taxonomic_classification_app(token: Optional[str] = None, host_genome: str = "no_host", analysis_type: str = "16S", paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List = None, database: str = "SILVA", save_classified_sequences: bool = False, save_unclassified_sequences: bool = False, confidence_interval: float = 0.1, output_path: str = None, output_file: str = None) -> str:
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
