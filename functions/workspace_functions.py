@@ -5,7 +5,7 @@ import os
 import json
 import sys
 
-def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str) -> List[str]:
+def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str, file_types: str | List[str] = None) -> List[str]:
     """
     List workspace contents using the JSON-RPC API.
     
@@ -13,15 +13,43 @@ def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str) -> List[str]:
         api: JsonRpcCaller instance configured with workspace URL and token
         paths: List of paths to list
         token: Authentication token for API calls
+        file_type: Optional file type(s) to filter by. Can be a string or list of strings
+                   (e.g., 'contigs', 'folder', 'unspecified', 'genome_group', 'feature_group', 'reads').
+                   If provided, only files/objects with these types will be returned.
     Returns:
         List of workspace items
     """
     try:
-        result = api.call("Workspace.ls", {
-            "Recursive": False,
-            "includeSubDirs": False,
-            "paths": paths
-        },1, token)
+        # Build API call parameters
+        # Enable recursive search when file_type is provided to search subdirectories
+        if file_types:
+            # Convert single string to list if needed
+            if isinstance(file_types, str):
+                file_types_list = [file_types]
+            else:
+                file_types_list = file_types
+            
+            # Use recursive search format matching workspace_search when filtering by type
+            # Pass type as array directly (API expects array format for type filtering)
+            api_params = {
+                "recursive": True,
+                "includeSubDirs": True,
+                "excludeDirectories": False,
+                "excludeObjects": False,
+                "paths": paths,
+                "query": {
+                    "type": file_types_list
+                }
+            }
+        else:
+            # Non-recursive listing when no file_type filter
+            api_params = {
+                "Recursive": False,
+                "includeSubDirs": False,
+                "paths": paths
+            }
+        print(f"workspace_ls file_types: {file_types}, file_types_list: {file_types_list}, Query params: {json.dumps(api_params, indent=2)}", file=sys.stderr)
+        result = api.call("Workspace.ls", api_params, 1, token)
         return result
     except Exception as e:
         return [f"Error listing workspace: {str(e)}"]

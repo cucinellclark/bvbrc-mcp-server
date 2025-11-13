@@ -95,12 +95,16 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
     """Register workspace tools with the FastMCP server"""
     
     @mcp.tool()
-    def workspace_ls_tool(token: Optional[str] = None, paths: List[str] = None) -> str:
+    def workspace_ls_tool(token: Optional[str] = None, paths: List[str] = None, file_types: Optional[str | List[str]] = None) -> str:
         """List the contents of the workspace.
 
         Args:
             token: Authentication token (optional - will use default if not provided)
             paths: Optional list of paths to list (relative to user's home directory). If empty or None, lists user home directory.
+            file_type: Optional file type(s) to filter by. Can be a string or list of strings
+                      (e.g., 'contigs', 'folder', 'unspecified', 'genome_group', 'feature_group', 'reads'). 
+                      If provided, only files/objects with these types will be returned. This filters by the workspace object type,
+                      not by file extension, so it can match files with different extensions that share the same type.
 
         Returns:
             String representation of workspace contents.
@@ -113,9 +117,11 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
         paths = resolve_relative_paths(paths or [], user_id)
+        print(f"WORKSPACE_LS_TOOL paths: {paths}", file=sys.stderr)
 
-        print(f"Listing paths: {paths}, user_id: {user_id}")
-        result = workspace_ls(api, paths, auth_token)
+        print(f"Listing paths: {paths}, user_id: {user_id}, file_type: {file_types}", file=sys.stderr)
+        result = workspace_ls(api, paths, auth_token, file_types )
+        print(f"Listing result: {result}", file=sys.stderr)
         return str(result)
 
     @mcp.tool()
