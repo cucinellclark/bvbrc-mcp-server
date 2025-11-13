@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 import uuid
 import json
 import os
+import sys
 
 def _generate_numerical_uuid() -> int:
     """Generate a numerical UUID for JSON RPC call IDs."""
@@ -218,10 +219,16 @@ def start_comprehensive_genome_analysis_app(api: JsonRpcCaller, token: str = Non
         return []
 
 def start_blast_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_type: str = None, input_source: str = None, input_fasta_data: str = None, input_id_list: List[str] = None, input_fasta_file: str = None, input_feature_group: str = None, input_genome_group: str = None, db_type: str = None, db_source: str = None, db_fasta_data: str = None, db_fasta_file: str = None, db_id_list: List[str] = None, db_feature_group: str = None, db_genome_group: str = None, db_genome_list: List[str] = None, db_taxon_list: List[str] = None, db_precomputed_database: str = None, blast_program: str = None, blast_evalue_cutoff: float = 1e-5, blast_max_hits: int = 300, blast_min_coverage: int = None, output_path: str = None, output_file: str = None) -> str:
+    print("start_blast_app called", file=sys.stdout)
     app_name = "Homology"
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        if output_path and user_id and not output_path.startswith('/'):
+            output_path = f"/{user_id}/home/{output_path}"
+        elif output_path and user_id and output_path.startswith('home/'):
+            output_path = f"/{user_id}/{output_path}"
         params = _filter_none_params({
             "input_type": input_type,
             "input_source": input_source,
@@ -248,11 +255,20 @@ def start_blast_app(api: JsonRpcCaller, token: str = None, user_id: str = None, 
             "output_file": output_file
         })
         data = [app_name, params, {}]
+        print("data", data, file=sys.stdout)
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
-        return result
+        print(f"result type: {type(result)}, result: {result}", file=sys.stdout)
+        if result is None:
+            return "Error: No result returned from API"
+        # Handle both list and dict results
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
+        return str(result)
     except Exception as e:
-        print(e)
-        return []
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Exception in start_blast_app: {error_trace}", file=sys.stderr)
+        return f"Error: {str(e)}\nTraceback: {error_trace}"
 
 def start_primer_design_app(api: JsonRpcCaller, token: str = None, user_id: str = None, output_file: str = None, output_path: str = None, input_type: str = None, sequence_input: str = None, SEQUENCE_ID: str = None, SEQUENCE_TARGET: List[List[int]] = None, SEQUENCE_INCLUDED_REGION: List[int] = None, SEQUENCE_EXCLUDED_REGION: List[int] = None, SEQUENCE_OVERLAP_JUNCTION_LIST: List[List[int]] = None, PRIMER_PICK_INTERNAL_OLIGO: int = None, PRIMER_PRODUCT_SIZE_RANGE: List[List[int]] = None, PRIMER_NUM_RETURN: int = None, PRIMER_MIN_SIZE: int = None, PRIMER_OPT_SIZE: int = None, PRIMER_MAX_SIZE: int = None, PRIMER_MAX_TM: float = None, PRIMER_MIN_TM: float = None, PRIMER_OPT_TM: float = None, PRIMER_PAIR_MAX_DIFF_TM: float = None, PRIMER_MAX_GC: float = None, PRIMER_MIN_GC: float = None, PRIMER_OPT_GC: float = None, PRIMER_SALT_MONOVALENT: float = None, PRIMER_SALT_DIVALENT: float = None, PRIMER_DNA_CONC: float = None, PRIMER_DNTP_CONC: float = None) -> str:
     app_name = "PrimerDesign"
