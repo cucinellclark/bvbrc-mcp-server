@@ -21,6 +21,14 @@ def _filter_none_params(params: Dict[str, Any]) -> Dict[str, Any]:
     """Helper function to filter out parameters with None values."""
     return {k: v for k, v in params.items() if v is not None}
 
+def _resolve_output_path(output_path: str, user_id: str) -> str:
+    """Helper function to resolve relative paths to absolute paths."""
+    if output_path and user_id and not output_path.startswith('/'):
+        output_path = f"/{user_id}/home/{output_path}"
+    elif output_path and user_id and output_path.startswith('home/'):
+        output_path = f"/{user_id}/{output_path}"
+    return output_path
+
 def get_service_info(service_name: str) -> str:
     """
     Get service information from prompt files.
@@ -50,7 +58,11 @@ def get_service_info(service_name: str) -> str:
         
         # Read and return the file contents
         with open(prompt_file_path, 'r', encoding='utf-8') as f:
-            return f.read()
+            content = f.read()
+        
+        # Append output_path instruction to every service prompt
+        output_path_note = "\n\nNote: output_path is relative to the user's home directory. Do not start the path with a '/' or with 'home'."
+        return content + output_path_note
             
     except Exception as e:
         raise Exception(f"Error reading service info for '{service_name}': {str(e)}")
@@ -58,6 +70,8 @@ def get_service_info(service_name: str) -> str:
 def enumerate_apps(api: JsonRpcCaller, token: str = None, user_id: str = None) -> List[str]:
     try:
         result = api.call("AppService.enumerate_apps", {}, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -68,6 +82,8 @@ def start_date_app(api: JsonRpcCaller, token: str = None, user_id: str = None, o
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "output_path": output_path,
             "output_file": output_file
@@ -76,6 +92,8 @@ def start_date_app(api: JsonRpcCaller, token: str = None, user_id: str = None, o
         data = ["Date", params, {}]
         
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -99,6 +117,8 @@ def start_genome_annotation_app(api: JsonRpcCaller, token: str = None, user_id: 
         if taxonomy_id is None:
             taxonomy_id = ""
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "genome_id": genome_id,
             "contigs": contigs,
@@ -130,6 +150,8 @@ def start_genome_annotation_app(api: JsonRpcCaller, token: str = None, user_id: 
         })
         data = ["GenomeAnnotation", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -138,6 +160,8 @@ def start_genome_annotation_app(api: JsonRpcCaller, token: str = None, user_id: 
 def query_tasks(api: JsonRpcCaller, token: str = None, user_id: str = None, params: Dict[str, Any] = None) -> str:
     try:
         result = api.call("AppService.query_tasks", [params['task_ids']], _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -148,6 +172,8 @@ def start_genome_assembly_app(api: JsonRpcCaller, token: str = None, user_id: st
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "paired_end_libs": paired_end_libs,
             "single_end_libs": single_end_libs,
@@ -181,6 +207,8 @@ def start_comprehensive_genome_analysis_app(api: JsonRpcCaller, token: str = Non
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_type": input_type,
             "output_path": output_path,
@@ -215,6 +243,8 @@ def start_comprehensive_genome_analysis_app(api: JsonRpcCaller, token: str = Non
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -226,10 +256,7 @@ def start_blast_app(api: JsonRpcCaller, token: str = None, user_id: str = None, 
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
         # Resolve relative paths to absolute paths
-        if output_path and user_id and not output_path.startswith('/'):
-            output_path = f"/{user_id}/home/{output_path}"
-        elif output_path and user_id and output_path.startswith('home/'):
-            output_path = f"/{user_id}/{output_path}"
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_type": input_type,
             "input_source": input_source,
@@ -261,10 +288,9 @@ def start_blast_app(api: JsonRpcCaller, token: str = None, user_id: str = None, 
         print(f"result type: {type(result)}, result: {result}", file=sys.stdout)
         if result is None:
             return "Error: No result returned from API"
-        # Handle both list and dict results
         if isinstance(result, (list, dict)):
             return json.dumps(result, indent=2)
-        return str(result)
+        return result
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
@@ -276,6 +302,8 @@ def start_primer_design_app(api: JsonRpcCaller, token: str = None, user_id: str 
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "output_file": output_file,
             "output_path": output_path,
@@ -306,6 +334,8 @@ def start_primer_design_app(api: JsonRpcCaller, token: str = None, user_id: str 
         })
         data = ["PrimerDesign", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -316,6 +346,8 @@ def start_variation_app(api: JsonRpcCaller, token: str = None, user_id: str = No
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "reference_genome_id": reference_genome_id,
             "paired_end_libs": paired_end_libs,
@@ -329,6 +361,8 @@ def start_variation_app(api: JsonRpcCaller, token: str = None, user_id: str = No
         })
         data = ["Variation", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -339,6 +373,8 @@ def start_tnseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None, 
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "experimental_conditions": experimental_conditions,
             "contrasts": contrasts,
@@ -352,6 +388,8 @@ def start_tnseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None, 
         })
         data = ["TnSeq", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -362,6 +400,8 @@ def start_bacterial_genome_tree_app(api: JsonRpcCaller, token: str = None, user_
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         if isinstance(genome_metadata_fields, list):
             genome_metadata_fields = ",".join(genome_metadata_fields)
         if genome_groups and not genome_ids:
@@ -393,6 +433,8 @@ def start_gene_tree_app(api: JsonRpcCaller, token: str = None, user_id: str = No
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "sequences": sequences,
             "alignment_program": alignment_program,
@@ -410,6 +452,8 @@ def start_gene_tree_app(api: JsonRpcCaller, token: str = None, user_id: str = No
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -420,6 +464,8 @@ def start_core_genome_mlst_app(api: JsonRpcCaller, token: str = None, user_id: s
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_genome_type": input_genome_type,
             "analysis_type": analysis_type,
@@ -432,6 +478,8 @@ def start_core_genome_mlst_app(api: JsonRpcCaller, token: str = None, user_id: s
         })
         data = ["CoreGenomeMLST", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -442,6 +490,8 @@ def start_whole_genome_snp_app(api: JsonRpcCaller, token: str = None, user_id: s
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_genome_type": input_genome_type,
             "majority_threshold": majority_threshold,
@@ -455,6 +505,8 @@ def start_whole_genome_snp_app(api: JsonRpcCaller, token: str = None, user_id: s
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -465,6 +517,8 @@ def start_taxonomic_classification_app(api: JsonRpcCaller, token: str = None, us
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "host_genome": host_genome,
             "analysis_type": analysis_type,
@@ -480,16 +534,20 @@ def start_taxonomic_classification_app(api: JsonRpcCaller, token: str = None, us
         })
         data = ["TaxonomicClassification", params, { 'base_url': 'https://www.bv-brc.org' }]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
         return []
 
-def start_metagenomic_binning_app(api: JsonRpcCaller, token: str = None, user_id: str = None, paired_end_libs: Dict = None, single_end_libs: Dict = None, srr_ids: str = None, contigs: str = None, genome_group: str = None, skip_indexing: bool = False, recipe: str = None, viral_recipe: str = None, output_path: str = None, output_file: str = None, force_local_assembly: bool = False, force_inline_annotation: bool = True, perform_bacterial_binning: bool = True, perform_viral_binning: bool = False, perform_viral_annotation: bool = False, perform_bacterial_annotation: bool = True, assembler: str = "", danglen: str = "50", min_contig_len: int = 400, min_contig_cov: float = 4.0) -> str:
+def start_metagenomic_binning_app(api: JsonRpcCaller, token: str = None, user_id: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, contigs: str = None, genome_group: str = None, skip_indexing: bool = False, recipe: str = None, viral_recipe: str = None, output_path: str = None, output_file: str = None, force_local_assembly: bool = False, force_inline_annotation: bool = True, perform_bacterial_binning: bool = True, perform_viral_binning: bool = False, perform_viral_annotation: bool = False, perform_bacterial_annotation: bool = True, assembler: str = "", danglen: str = "50", min_contig_len: int = 400, min_contig_cov: float = 4.0) -> str:
     app_name = "MetagenomeBinning"
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "paired_end_libs": paired_end_libs,
             "single_end_libs": single_end_libs,
@@ -514,16 +572,20 @@ def start_metagenomic_binning_app(api: JsonRpcCaller, token: str = None, user_id
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
         return []
 
-def start_metagenomic_read_mapping_app(api: JsonRpcCaller, token: str = None, user_id: str = None, gene_set_type: str = None, gene_set_name: str = None, gene_set_fasta: str = None, gene_set_feature_group: str = None, paired_end_libs: Dict = None, single_end_libs: Dict = None, srr_ids: str = None, output_path: str = None, output_file: str = None) -> str:
+def start_metagenomic_read_mapping_app(api: JsonRpcCaller, token: str = None, user_id: str = None, gene_set_type: str = None, gene_set_name: str = None, gene_set_fasta: str = None, gene_set_feature_group: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "MetagenomicReadMapping"
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "gene_set_type": gene_set_type,
             "gene_set_name": gene_set_name,
@@ -537,6 +599,8 @@ def start_metagenomic_read_mapping_app(api: JsonRpcCaller, token: str = None, us
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -547,6 +611,8 @@ def start_rnaseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None,
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "experimental_conditions": experimental_conditions,
             "contrasts": contrasts,
@@ -566,6 +632,8 @@ def start_rnaseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None,
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -576,6 +644,8 @@ def start_expression_import_app(api: JsonRpcCaller, token: str = None, user_id: 
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "xfile": xfile,
             "mfile": mfile,
@@ -585,6 +655,8 @@ def start_expression_import_app(api: JsonRpcCaller, token: str = None, user_id: 
         })
         data = ["ExpressionImport", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -595,6 +667,8 @@ def start_sars_wastewater_analysis_app(api: JsonRpcCaller, token: str = None, us
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "paired_end_libs": paired_end_libs,
             "single_end_libs": single_end_libs,
@@ -619,6 +693,8 @@ def start_sars_wastewater_analysis_app(api: JsonRpcCaller, token: str = None, us
         })
         data = ["SARSWastewaterAnalysis", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -629,6 +705,8 @@ def start_sequence_submission_app(api: JsonRpcCaller, token: str = None, user_id
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_source": input_source,
             "input_fasta_data": input_fasta_data,
@@ -652,6 +730,8 @@ def start_sequence_submission_app(api: JsonRpcCaller, token: str = None, user_id
         })
         data = ["SequenceSubmission", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -662,6 +742,8 @@ def start_influenza_ha_subtype_conversion_app(api: JsonRpcCaller, token: str = N
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_source": input_source,
             "input_fasta_data": input_fasta_data,
@@ -674,6 +756,8 @@ def start_influenza_ha_subtype_conversion_app(api: JsonRpcCaller, token: str = N
         })
         data = ["InfluenzaHASubtypeConversion", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -684,6 +768,8 @@ def start_subspecies_classification_app(api: JsonRpcCaller, token: str = None, u
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_source": input_source,
             "input_fasta_data": input_fasta_data,
@@ -696,6 +782,8 @@ def start_subspecies_classification_app(api: JsonRpcCaller, token: str = None, u
         })
         data = ["SubspeciesClassification", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -706,6 +794,8 @@ def start_viral_assembly_app(api: JsonRpcCaller, token: str = None, user_id: str
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "paired_end_lib": paired_end_lib,
             "single_end_lib": single_end_lib,
@@ -719,6 +809,8 @@ def start_viral_assembly_app(api: JsonRpcCaller, token: str = None, user_id: str
         })
         data = ["ViralAssembly", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -729,6 +821,8 @@ def start_fastq_utils_app(api: JsonRpcCaller, token: str = None, user_id: str = 
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "reference_genome_id": reference_genome_id,
             "paired_end_libs": paired_end_libs,
@@ -741,6 +835,8 @@ def start_fastq_utils_app(api: JsonRpcCaller, token: str = None, user_id: str = 
         print(json.dumps(params, indent=4))
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -751,6 +847,8 @@ def start_genome_alignment_app(api: JsonRpcCaller, token: str = None, user_id: s
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "genome_ids": genome_ids,
             "recipe": recipe,
@@ -767,6 +865,8 @@ def start_genome_alignment_app(api: JsonRpcCaller, token: str = None, user_id: s
         })
         data = ["GenomeAlignment", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -777,6 +877,8 @@ def start_sars_genome_analysis_app(api: JsonRpcCaller, token: str = None, user_i
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "paired_end_libs": paired_end_libs,
             "single_end_libs": single_end_libs,
@@ -793,6 +895,8 @@ def start_sars_genome_analysis_app(api: JsonRpcCaller, token: str = None, user_i
         })
         data = ["SARS2Assembly", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -803,6 +907,8 @@ def start_msa_snp_analysis_app(api: JsonRpcCaller, token: str = None, user_id: s
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "input_status": input_status,
             "input_type": input_type,
@@ -822,6 +928,8 @@ def start_msa_snp_analysis_app(api: JsonRpcCaller, token: str = None, user_id: s
         })
         data = ["MSA", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -832,6 +940,8 @@ def start_metacats_app(api: JsonRpcCaller, token: str = None, user_id: str = Non
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "output_path": output_path,
             "output_file": output_file,
@@ -848,6 +958,8 @@ def start_metacats_app(api: JsonRpcCaller, token: str = None, user_id: str = Non
         })
         data = ["MetaCATS", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -858,6 +970,8 @@ def start_proteome_comparison_app(api: JsonRpcCaller, token: str = None, user_id
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "genome_ids": genome_ids,
             "user_genomes": user_genomes,
@@ -872,6 +986,8 @@ def start_proteome_comparison_app(api: JsonRpcCaller, token: str = None, user_id
         })
         data = ["GenomeComparison", params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -882,6 +998,8 @@ def start_comparative_systems_app(api: JsonRpcCaller, token: str = None, user_id
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "output_path": output_path,
             "output_file": output_file,
@@ -890,6 +1008,8 @@ def start_comparative_systems_app(api: JsonRpcCaller, token: str = None, user_id
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -900,6 +1020,8 @@ def start_docking_app(api: JsonRpcCaller, token: str = None, user_id: str = None
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         params = _filter_none_params({
             "protein_input_type": protein_input_type,
             "input_pdb": input_pdb,
@@ -915,6 +1037,8 @@ def start_docking_app(api: JsonRpcCaller, token: str = None, user_id: str = None
         })
         data = [app_name, params, {}]
         result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
         return result
     except Exception as e:
         print(e)
@@ -925,6 +1049,8 @@ def start_similar_genome_finder_app(api: JsonRpcCaller, token: str = None, user_
     try:
         # Set default values if not provided
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
         
         # Call the Minhash.compute_genome_distance_for_genome2 method
         function_call = ""
@@ -938,8 +1064,9 @@ def start_similar_genome_finder_app(api: JsonRpcCaller, token: str = None, user_
             return "Error: selectedGenomeId or fasta_file is required"
         
         result = api.call(function_call, params, _generate_numerical_uuid(), token)
-        output_headers = ['genome_id','distance','pvalue','kmers']
-        return output_headers, result
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
+        return result
     except Exception as e:
         print(e)
         return []

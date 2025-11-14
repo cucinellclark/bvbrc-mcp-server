@@ -3,7 +3,14 @@ The parameters for the taxonomic classification app are:
   - analysis_type: Analysis type - pathogen/microbiome/16S (required, default: 16S)
   - paired_end_libs: Paired-end read libraries with sample IDs (optional)
   - single_end_libs: Single-end read libraries with sample IDs (optional)
-  - srr_libs: SRA datasets with sample IDs (optional)
+  - srr_libs: SRA datasets with sample IDs (optional). Format: array of objects with "title", "srr_accession", and "sample_id" fields. Example:
+    [
+      {
+        "title": "Sample title or description",
+        "srr_accession": "SRRXXXX",
+        "sample_id": "SRRXXXX_label"
+      }
+    ]
   - database: Reference database - bvbrc/greengenes/silva/standard (required, default: SILVA)
   - save_classified_sequences: Save classified sequences (default: False)
   - save_unclassified_sequences: Save unclassified sequences (default: False)
