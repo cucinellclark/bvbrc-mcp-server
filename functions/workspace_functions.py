@@ -42,6 +42,7 @@ def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str, file_types: s
                     "type": file_types_list
                 }
             }
+            print(f"workspace_ls file_types: {file_types}, file_types_list: {file_types_list}, Query params: {json.dumps(api_params, indent=2)}", file=sys.stderr)
         else:
             # Non-recursive listing when no file_type filter
             api_params = {
@@ -49,7 +50,7 @@ def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str, file_types: s
                 "includeSubDirs": False,
                 "paths": paths
             }
-        print(f"workspace_ls file_types: {file_types}, file_types_list: {file_types_list}, Query params: {json.dumps(api_params, indent=2)}", file=sys.stderr)
+            print(f"workspace_ls file_types: {file_types}, Query params: {json.dumps(api_params, indent=2)}", file=sys.stderr)
         result = api.call("Workspace.ls", api_params, 1, token)
         return result
     except Exception as e:
@@ -234,6 +235,105 @@ def _get_user_id_from_token(token: str) -> str:
     except Exception as e:
         print(f"Error extracting user ID from token: {e}")
         return None
+
+def _meta_list_to_obj(meta_list: List[Any]) -> dict:
+    """
+    Transform metadata list to a human-friendly dictionary object.
+    
+    Args:
+        meta_list: List containing workspace metadata in array format
+        
+    Returns:
+        Dictionary with metadata fields
+    """
+    if not meta_list or len(meta_list) < 12:
+        return {}
+    
+    return {
+        "name": meta_list[0],
+        "type": meta_list[1],
+        "path": meta_list[2],
+        "creation_time": meta_list[3],
+        "id": meta_list[4],
+        "owner_id": meta_list[5],
+        "size": meta_list[6],
+        "userMeta": meta_list[7],
+        "autoMeta": meta_list[8],
+        "user_permission": meta_list[9],
+        "global_permission": meta_list[10],
+        "link_reference": meta_list[11] if len(meta_list) > 11 else None
+    }
+
+def workspace_list_shared(api: JsonRpcCaller, token: str) -> List[dict]:
+    """
+    List workspaces shared with the user.
+    
+    This function calls Workspace.ls with path '/' to get all workspaces,
+    then filters to return only workspaces that are shared with the user
+    (excluding public workspaces and the user's own private workspaces).
+    
+    Args:
+        api: JsonRpcCaller instance configured with workspace URL and token
+        token: Authentication token for API calls
+        
+    Returns:
+        List of dictionaries containing metadata for shared workspaces.
+        Returns empty list on error.
+    """
+    try:
+        # Call Workspace.ls with root path to get all workspaces
+        result = api.call("Workspace.ls", {
+            "paths": ['/']
+        }, 1, token)
+        
+        # Extract results from the root path
+        # Result structure: result is an array, result[0] is a dict keyed by path
+        if not result:
+            return []
+        
+        # Handle different possible result structures
+        if isinstance(result, list) and len(result) > 0:
+            if isinstance(result[0], dict) and '/' in result[0]:
+                all_workspaces = result[0]['/']
+            elif isinstance(result[0], list):
+                # If result[0] is directly a list, use it
+                all_workspaces = result[0]
+            else:
+                return []
+        else:
+            return []
+        
+        if not all_workspaces:
+            return []
+        
+        # Transform metadata lists to objects
+        all_workspaces_objs = [_meta_list_to_obj(meta_list) for meta_list in all_workspaces]
+        
+        # Filter to get only workspaces shared with the user
+        # Exclude:
+        # 1. Workspaces where global_permission != 'n' (not private/public)
+        # 2. Workspaces where user_permission == 'o' AND global_permission == 'n' (owner's private folders)
+        shared_workspaces = []
+        for ws in all_workspaces_objs:
+            global_perm = ws.get("global_permission", "")
+            user_perm = ws.get("user_permission", "")
+            
+            # Skip if not private (global_permission != 'n')
+            if global_perm != 'n':
+                continue
+            
+            # Skip if owner's private folder (user_permission == 'o' AND global_permission == 'n')
+            if user_perm == 'o' and global_perm == 'n':
+                continue
+            
+            # Otherwise, it's shared with the user
+            shared_workspaces.append(ws)
+        
+        return shared_workspaces
+        
+    except Exception as e:
+        print(f"Error listing shared workspaces: {e}", file=sys.stderr)
+        return []
 
 def workspace_upload(api: JsonRpcCaller, filename: str, upload_dir: str = None, token: str = None) -> str:
     """
