@@ -7,7 +7,7 @@ import hashlib
 import base64
 from uuid import uuid4
 from typing import Any, Dict, TYPE_CHECKING, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -30,6 +30,10 @@ except Exception:
     class AccessToken(dict):  # type: ignore
         pass
 
+# Token expiration constants
+ACCESS_TOKEN_EXPIRES_IN_SECONDS = 3600  # 1 hour
+AUTHORIZATION_CODE_EXPIRES_IN_SECONDS = 600  # 10 minutes
+
 class BvbrcOAuthProvider(AuthProvider):
     """
     Minimal custom OAuth provider for BV-BRC that implements the same behavioral logic
@@ -42,6 +46,8 @@ class BvbrcOAuthProvider(AuthProvider):
         super().__init__(base_url=base_url, required_scopes=["profile", "token"])
         self.openid_config_url = openid_config_url
         self.authentication_url = authentication_url
+        # Note: All localhost URLs (localhost, 127.0.0.1, any port) are automatically allowed
+        # in addition to the URLs in this list
         self.allowed_callback_urls = allowed_callback_urls or [
             "https://chatgpt.com/connector_platform_oauth_redirect",
             "https://claude.ai/api/mcp/auth_callback"
@@ -69,7 +75,7 @@ class BvbrcOAuthProvider(AuthProvider):
                 if auth_code_data.get("user_token") == token:
                     token_info = {
                         "username": auth_code_data.get("username"),
-                        "issued_at": auth_code_data.get("expires_at", time.time()) - 600,
+                        "issued_at": auth_code_data.get("expires_at", time.time()) - AUTHORIZATION_CODE_EXPIRES_IN_SECONDS,
                     }
                     print(f"[TOKEN VERIFICATION] Token found in legacy storage. Token: {token}, Username: {token_info.get('username')}", file=sys.stderr)
                     break
@@ -111,7 +117,7 @@ class BvbrcOAuthProvider(AuthProvider):
                     
                     token_info = {
                         "username": username,
-                        "issued_at": time.time() - 3600,  # Assume issued 1 hour ago
+                        "issued_at": time.time() - ACCESS_TOKEN_EXPIRES_IN_SECONDS,  # Assume issued 1 hour ago
                     }
                     print(f"[TOKEN VERIFICATION] PATRIC token parsed successfully. Username: {username}, Expiry: {expiry}", file=sys.stderr)
                 except Exception as e:
@@ -147,7 +153,7 @@ class BvbrcOAuthProvider(AuthProvider):
             token=token,
             client_id="bvbrc-public-client",
             scopes=["profile", "token"],
-            expires_at=int(time.time()) + 3600,
+            expires_at=int(time.time()) + ACCESS_TOKEN_EXPIRES_IN_SECONDS,
         )
 
     # --- Helper methods ---
@@ -222,6 +228,17 @@ ALLOWED_CALLBACK_URLS = [
     "https://chatgpt.com/connector_platform_oauth_redirect",
     "https://claude.ai/api/mcp/auth_callback"
 ]
+
+def is_localhost_url(url: str) -> bool:
+    """
+    Check if a URL is a localhost URL (localhost or 127.0.0.1, any port).
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+        return hostname.lower() in ("localhost", "127.0.0.1", "::1") or hostname.startswith("127.")
+    except Exception:
+        return False
 
 def get_registered_client(client_id: str) -> dict | None:
     """Legacy helper used by module-level endpoints."""
@@ -374,12 +391,12 @@ async def oauth2_authorize(request, authentication_url: str):
             status_code=400
         )
     
-    # Validate redirect_uri is whitelisted
-    if redirect_uri not in ALLOWED_CALLBACK_URLS:
+    # Validate redirect_uri is whitelisted (allow localhost URLs or URLs in allowed list)
+    if redirect_uri not in ALLOWED_CALLBACK_URLS and not is_localhost_url(redirect_uri):
         return JSONResponse(
             content={
                 "error": "invalid_request",
-                "error_description": f"redirect_uri '{redirect_uri}' is not whitelisted. Allowed: {ALLOWED_CALLBACK_URLS}"
+                "error_description": f"redirect_uri '{redirect_uri}' is not whitelisted. Allowed: {ALLOWED_CALLBACK_URLS} or any localhost URL"
             },
             status_code=400
         )
@@ -702,7 +719,7 @@ async def oauth2_login(request, authentication_url: str):
             "scope": scope,
             "user_token": user_token,
             "username": username,
-            "expires_at": time.time() + 600,  # 10 minutes
+            "expires_at": time.time() + AUTHORIZATION_CODE_EXPIRES_IN_SECONDS,
             "used": False
         }
         
@@ -876,7 +893,7 @@ async def oauth2_token(request, provider: Optional[Any] = None):
         token_response = {
             "access_token": user_token,
             "token_type": "Bearer",
-            "expires_in": 3600,  # 1 hour
+            "expires_in": ACCESS_TOKEN_EXPIRES_IN_SECONDS,
             "scope": stored_scope
         }
 
