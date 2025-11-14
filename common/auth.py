@@ -31,8 +31,8 @@ except Exception:
         pass
 
 # Token expiration constants
-ACCESS_TOKEN_EXPIRES_IN_SECONDS = 3600  # 1 hour
-AUTHORIZATION_CODE_EXPIRES_IN_SECONDS = 600  # 10 minutes
+ACCESS_TOKEN_EXPIRES_IN_SECONDS = 7200  # 2 hours
+AUTHORIZATION_CODE_EXPIRES_IN_SECONDS = 3600  # 1 hour
 
 class BvbrcOAuthProvider(AuthProvider):
     """

@@ -77,6 +77,8 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             In the genome_feature table, whenever possible, the patric_id should be used instead of the feature_id, as
             only the patric_id is made visible to the end user. Patric IDs always begin with "fig|".
 
+            Always use the solr_collection_parameters tool to get the parameters for a given collection before using this tool.
+
         Returns:
             JSON string with query results:
             - If countOnly is True: {"count": <total_count>}
