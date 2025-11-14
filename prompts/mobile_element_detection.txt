@@ -1,0 +1,38 @@
+The parameters for the 'Mobile Element Detection' (MED) app are:
+    - input_type: Type of input data - 'contigs' or 'reads' (required)
+    - input_file: Input file of contigs in FASTA format containing sequences to analyze (required when input_type is 'contigs') (optional)
+    - paired_end_libs: Paired-end read libraries (optional)
+        - Provide as a list of objects, each containing "read1" and "read2" file paths
+        - Example: [{"read1": "/path/to/read1.fastq.gz", "read2": "/path/to/read2.fastq.gz"}]
+    - single_end_libs: Single-end read libraries (optional)
+        - Provide as a list of objects, each containing a "read" file path
+        - Example: [{"read": "/path/to/read.fastq.gz"}]
+    - srr_ids: List of SRA Run IDs (optional)
+        - Provide as a list of strings, e.g., ["SRR12345", "SRR67890"]
+    - recipe: Recipe used for assembly (used when input_type is 'reads') (optional)
+    - racon_iter: Racon polishing iterations (for long reads) (optional, default: 2)
+    - pilon_iter: Pilon polishing iterations (for short reads) (optional, default: 2)
+    - trim: Racon Trim reads before assembly (optional, default: False)
+    - target_depth: Target depth for BBNorm and Filtlong (optional, default: 200)
+    - normalize: Normalize reads using BBNorm before assembly (optional, default: False)
+    - filtlong: Filter long reads on length and quality to target depth (optional, default: False)
+    - min_contig_len: Filter out short contigs in final assembly (optional, default: 300)
+    - min_contig_cov: Filter out contigs with low read depth in final assembly (optional, default: 5)
+    - max_bases: Maximum bases across all input read files triggering downsampling (optional, default: 10000000000)
+    - filtering-preset: 'conservative' preset makes filters more aggressive for high-confidence results, 'relaxed' preset disables post-classification filters. (optional, default: null)
+    - cleanup: Delete intermediate files after execution (optional, default: True)
+    - restart: Overwrite existing intermediate files (optional, default: True)
+    - verbose: Display the execution log (optional, default: True)
+    - lenient-taxonomy: Allow classification of virus genomes to taxa below the family rank (optional, default: False)
+    - full-ictv-lineage: Output the full ICTV lineage of each virus genome (optional, default: True)
+    - composition: Method for estimating sample composition, ["auto", "metagenome", "virome"] (optional, default: auto)
+    - force-auto: Force automatic composition estimation regardless of sample size (optional, default: False)
+    - debug: Debugging level for assembly (optional, default: 0)
+    - output_path: Output directory (required)
+    - output_file: Output basename (required)
+
+At least one input_type ('contigs' or 'reads') must be provided.
+    If 'reads', at least one input source (paired_end_libs, single_end_libs, or srr_ids) must be provided.
+    If 'contigs', input_file must be provided.
+Both output_file and output_path must always be provided.
+

@@ -176,6 +176,10 @@
       "description": "FASTQ utilities service"
     },
     {
+      "name": "mobile_element_detection",
+      "description": "Mobile Element Detection (MED) service"
+    },
+    {
       "name": "workspace_ls_tool",
       "description": "List the contents of the workspace"
     },
