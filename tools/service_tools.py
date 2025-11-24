@@ -18,7 +18,7 @@ from functions.service_functions import (
     start_subspecies_classification_app, start_viral_assembly_app, start_fastq_utils_app,
     start_genome_alignment_app, start_sars_genome_analysis_app, start_msa_snp_analysis_app,
     start_metacats_app, start_proteome_comparison_app, start_comparative_systems_app,
-    start_docking_app, start_similar_genome_finder_app, get_service_info
+    start_docking_app, start_similar_genome_finder_app, start_mobile_element_detection_app, get_service_info
 )
 from typing import Any, List, Dict, Optional, Union
 
@@ -36,7 +36,7 @@ def extract_userid_from_token(token: str = None) -> str:
         return user_id
             
     except Exception as e:
-        print(f"Error extracting user ID from token: {e}")
+        print("Error extracting user ID from token: ", e, file=sys.stderr)
         return None
 
 
@@ -129,13 +129,11 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
     @mcp.tool(name="blast", description="Always use the get_service_info tool before using this tool.")
     def submit_blast_app(token: Optional[str] = None, input_type: str = None, input_source: str = None, input_fasta_data: str = None, input_id_list: List[str] = None, input_fasta_file: str = None, input_feature_group: str = None, input_genome_group: str = None, db_type: str = None, db_source: str = None, db_fasta_data: str = None, db_fasta_file: str = None, db_id_list: List[str] = None, db_feature_group: str = None, db_genome_group: str = None, db_genome_list: List[str] = None, db_taxon_list: List[str] = None, db_precomputed_database: str = None, blast_program: str = None, blast_evalue_cutoff: float = 1e-5, blast_max_hits: int = 300, blast_min_coverage: int = None, output_path: str = None, output_file: str = None) -> str:
         # Get the appropriate token
-        print("submit_blast_app called", file=sys.stdout)
         auth_token = token_provider.get_token(token)
         if not auth_token:
             return "Error: No authentication token available"
         
         user_id = extract_userid_from_token(auth_token)
-        print("user_id", user_id, file=sys.stdout)
         return start_blast_app(api, token=auth_token, user_id=user_id, input_type=input_type, input_source=input_source, input_fasta_data=input_fasta_data, input_id_list=input_id_list, input_fasta_file=input_fasta_file, input_feature_group=input_feature_group, input_genome_group=input_genome_group, db_type=db_type, db_source=db_source, db_fasta_data=db_fasta_data, db_fasta_file=db_fasta_file, db_id_list=db_id_list, db_feature_group=db_feature_group, db_genome_group=db_genome_group, db_genome_list=db_genome_list, db_taxon_list=db_taxon_list, db_precomputed_database=db_precomputed_database, blast_program=blast_program, blast_evalue_cutoff=blast_evalue_cutoff, blast_max_hits=blast_max_hits, blast_min_coverage=blast_min_coverage, output_path=output_path, output_file=output_file)
 
     @mcp.tool(name="primer_design", description="Always use the get_service_info tool before using this tool.")
@@ -407,4 +405,14 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
         
         user_id = extract_userid_from_token(auth_token)
         return start_fastq_utils_app(api, token=auth_token, user_id=user_id, reference_genome_id=reference_genome_id, paired_end_libs=paired_end_libs, single_end_libs=single_end_libs, srr_libs=srr_libs, output_path=output_path, output_file=output_file, recipe=recipe)
+
+    @mcp.tool(name="mobile_element_detection", description="Always use the get_service_info tool before using this tool.")
+    def submit_mobile_element_detection_app(token: Optional[str] = None, input_type: str = None, input_file: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, recipe: str = "auto", racon_iter: int = 2, pilon_iter: int = 2, trim: bool = False, target_depth: int = 200, normalize: bool = False, filtlong: bool = False, genome_size: int = 5000000, min_contig_len: int = 300, min_contig_cov: float = 5.0, max_bases: int = 10000000000, filtering_preset: str = None, cleanup: bool = True, restart: bool = True, verbose: bool = True, lenient_taxonomy: bool = False, full_ictv_lineage: bool = True, composition: str = "auto", force_auto: bool = False, debug: int = 0, output_path: str = None, output_file: str = None) -> str:
+        # Get the appropriate token
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return "Error: No authentication token available"
+        
+        user_id = extract_userid_from_token(auth_token)
+        return start_mobile_element_detection_app(api, token=auth_token, user_id=user_id, input_type=input_type, input_file=input_file, paired_end_libs=paired_end_libs, single_end_libs=single_end_libs, srr_ids=srr_ids, recipe=recipe, racon_iter=racon_iter, pilon_iter=pilon_iter, trim=trim, target_depth=target_depth, normalize=normalize, filtlong=filtlong, genome_size=genome_size, min_contig_len=min_contig_len, min_contig_cov=min_contig_cov, max_bases=max_bases, filtering_preset=filtering_preset, cleanup=cleanup, restart=restart, verbose=verbose, lenient_taxonomy=lenient_taxonomy, full_ictv_lineage=full_ictv_lineage, composition=composition, force_auto=force_auto, debug=debug, output_path=output_path, output_file=output_file)
 

@@ -457,7 +457,7 @@ def start_gene_tree_app(api: JsonRpcCaller, token: str = None, user_id: str = No
         return result
     except Exception as e:
         print(e)
-        return []
+        return json.dumps({"error": str(e)})
 
 def start_core_genome_mlst_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_genome_type: str = "genome_group", analysis_type: str = "chewbbaca", input_genome_group: str = None, input_genome_fasta: str = None, schema_location: str = None, input_schema_selection: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "CoreGenomeMLST"
@@ -510,7 +510,7 @@ def start_whole_genome_snp_app(api: JsonRpcCaller, token: str = None, user_id: s
         return result
     except Exception as e:
         print(e)
-        return []
+        return json.dumps({"error": str(e)})
 
 def start_taxonomic_classification_app(api: JsonRpcCaller, token: str = None, user_id: str = None, host_genome: str = "no_host", analysis_type: str = "16S", paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List[Dict] = None, database: str = "SILVA", save_classified_sequences: bool = False, save_unclassified_sequences: bool = False, confidence_interval: float = 0.1, output_path: str = None, output_file: str = None) -> str:
     app_name = "TaxonomicClassification"
@@ -604,7 +604,7 @@ def start_metagenomic_read_mapping_app(api: JsonRpcCaller, token: str = None, us
         return result
     except Exception as e:
         print(e)
-        return []
+        return json.dumps({"error": str(e)})
 
 def start_rnaseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None, experimental_conditions: List[str] = None, contrasts: str = None, strand_specific: bool = True, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List[Dict] = None, reference_genome_id: str = None, genome_type: str = None, recipe: str = "HTSeq-DESeq", host_ftp: str = None, output_path: str = None, output_file: str = None, trimming: bool = False, unit_test: str = None, skip_sampling: str = None) -> str:
     app_name = "RNASeq"
@@ -1041,7 +1041,7 @@ def start_docking_app(api: JsonRpcCaller, token: str = None, user_id: str = None
             return json.dumps(result, indent=2)
         return result
     except Exception as e:
-        print(e)
+        print("error! (Docking): ", e, file=sys.stderr)
         return []
 
 def start_similar_genome_finder_app(api: JsonRpcCaller, token: str = None, user_id: str = None, selectedGenomeId: str = None, fasta_file: str = None, max_pvalue: float = None, max_distance: float = None, max_hits: int = None, include_reference: bool = None, include_representative: bool = None, include_bacterial: bool = None, include_viral: bool = None, output_path: str = None, output_file: str = None) -> str:
@@ -1068,5 +1068,52 @@ def start_similar_genome_finder_app(api: JsonRpcCaller, token: str = None, user_
             return json.dumps(result, indent=2)
         return result
     except Exception as e:
-        print(e)
+        print("error! (SimilarGenomeFinder): ", e, file=sys.stderr)
+        return []
+
+def start_mobile_element_detection_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_type: str = None, input_file: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, recipe: str = "auto", racon_iter: int = 2, pilon_iter: int = 2, trim: bool = False, target_depth: int = 200, normalize: bool = False, filtlong: bool = False, genome_size: int = 5000000, min_contig_len: int = 300, min_contig_cov: float = 5.0, max_bases: int = 10000000000, filtering_preset: str = None, cleanup: bool = True, restart: bool = True, verbose: bool = True, lenient_taxonomy: bool = False, full_ictv_lineage: bool = True, composition: str = "auto", force_auto: bool = False, debug: int = 0, output_path: str = None, output_file: str = None) -> str:
+    app_name = "MobileElementDetection"
+    try:
+        # Set default values if not provided
+        output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
+        # Resolve relative paths to absolute paths
+        output_path = _resolve_output_path(output_path, user_id)
+        params = _filter_none_params({
+            "input_type": input_type,
+            "input_file": input_file,
+            "paired_end_libs": paired_end_libs,
+            "single_end_libs": single_end_libs,
+            "srr_ids": srr_ids,
+            "recipe": recipe,
+            "racon_iter": racon_iter,
+            "pilon_iter": pilon_iter,
+            "trim": trim,
+            "target_depth": target_depth,
+            "normalize": normalize,
+            "filtlong": filtlong,
+            "genome_size": genome_size,
+            "min_contig_len": min_contig_len,
+            "min_contig_cov": min_contig_cov,
+            "max_bases": max_bases,
+            "filtering-preset": filtering_preset,  # Note: hyphen in API parameter name
+            "cleanup": cleanup,
+            "restart": restart,
+            "verbose": verbose,
+            "lenient-taxonomy": lenient_taxonomy,  # Note: hyphen in API parameter name
+            "full-ictv-lineage": full_ictv_lineage,  # Note: hyphen in API parameter name
+            "composition": composition,
+            "force-auto": force_auto,  # Note: hyphen in API parameter name
+            "debug": debug,
+            "output_path": output_path,
+            "output_file": output_file
+        })
+        data = [app_name, params, {"base_url": "https://dxkb.org"}] # TODO: Remove this once the app is deployed to the production server
+        print("data", data, file=sys.stderr)
+        result = api.call("AppService.start_app2", data, _generate_numerical_uuid(), token)
+        print("result", result, file=sys.stderr)
+        if isinstance(result, (list, dict)):
+            return json.dumps(result, indent=2)
+        return result
+    except Exception as e:
+        print("error! (MED): ", e, file=sys.stderr)
         return []

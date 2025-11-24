@@ -3,7 +3,8 @@ from fastmcp import FastMCP
 from functions.workspace_functions import (
     workspace_ls, workspace_get_file_metadata, workspace_download_file,
     workspace_upload, workspace_search, workspace_create_genome_group,
-    workspace_create_feature_group, workspace_get_genome_group_ids, workspace_get_feature_group_ids
+    workspace_create_feature_group, workspace_get_genome_group_ids, workspace_get_feature_group_ids,
+    workspace_list_shared
 )
 from common.json_rpc import JsonRpcCaller
 from common.token_provider import TokenProvider
@@ -163,6 +164,31 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         result = workspace_search(api, paths, search_term, file_extension, file_types, auth_token)
         print(f"Search result: {result}", file=sys.stderr)
         return str(result)
+
+    @mcp.tool()
+    def workspace_list_shared_tool(token: Optional[str] = None) -> str:
+        """List workspaces shared with the user.
+
+        This function retrieves all workspaces and filters to return only
+        workspaces that are shared with the user (excluding public workspaces
+        and the user's own private workspaces).
+
+        Args:
+            token: Authentication token (optional - will use default if not provided)
+
+        Returns:
+            JSON string containing a list of dictionaries with metadata for shared workspaces.
+            Each dictionary includes fields like name, type, path, owner_id, permissions, etc.
+        """
+        # Get the appropriate token (automatically checks Authorization header in HTTP mode)
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return "Error: No authentication token available"
+
+        print(f"Listing shared workspaces", file=sys.stderr)
+        result = workspace_list_shared(api, auth_token)
+        print(f"Shared workspaces result: {result}", file=sys.stderr)
+        return json.dumps(result, indent=2)
 
     @mcp.tool()
     def workspace_get_file_metadata_tool(token: Optional[str] = None, path: str = None) -> str:
