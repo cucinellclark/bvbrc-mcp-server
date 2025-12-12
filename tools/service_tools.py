@@ -342,4 +342,82 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             return f"Error submitting service '{service_name}': {str(e)}\n\nUse get_service_submission_schema(service_name='{service_name}') to verify parameters."
 
     @mcp.tool(name="generate_workflow_manifest")
-    def generate_workflow_manifest(service_name: str = None, parameters: Dict[str, Any] = None, token: Optional[str] = None) -> str:
+    def generate_workflow_manifest(user_query: str = None, token: Optional[str] = None) -> str:
+        """
+        Generate a workflow manifest from a natural language query.
+        
+        Uses an internal LLM to analyze the user's request, select appropriate services,
+        determine execution order, establish dependencies, and generate a complete
+        workflow manifest with parameter values and output references.
+        
+        Args:
+            user_query: Natural language description of the desired workflow.
+                       Examples:
+                       - "Assemble my reads and then annotate the resulting genome"
+                       - "Perform comprehensive genome analysis for E. coli"
+                       - "Map RNA-seq reads to reference genome and analyze expression"
+            token: Authentication token (optional - will use default if not provided)
+            
+        Returns:
+            JSON workflow manifest with workflow_id, base_context, and steps array.
+            Each step includes the service name (app), dependencies (depends_on), 
+            parameters (params), and output definitions (outputs). The manifest uses
+            ${} variable substitution for data flow between steps.
+            
+        Note: The generated manifest is designed to be consumed by a workflow execution
+        engine that will resolve variables and submit jobs in dependency order.
+        """
+        if not user_query:
+            return json.dumps({
+                "error": "user_query parameter is required",
+                "example": "generate_workflow_manifest(user_query='Assemble reads and annotate the genome')"
+            }, indent=2)
+        
+        # Get authentication token
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return json.dumps({"error": "No authentication token available"}, indent=2)
+        
+        # Extract user ID
+        user_id = extract_userid_from_token(auth_token)
+        if not user_id:
+            return json.dumps({"error": "Could not extract user ID from token"}, indent=2)
+        
+        try:
+            # Load LLM configuration
+            import os
+            import json as json_lib
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'config.json')
+            
+            with open(config_path, 'r') as f:
+                config = json_lib.load(f)
+            
+            # Create LLM client
+            from common.llm_client import create_llm_client_from_config
+            llm_client = create_llm_client_from_config(config)
+            
+            # Generate workflow manifest
+            from functions.workflow_functions import generate_workflow_manifest_internal
+            result = generate_workflow_manifest_internal(
+                user_query=user_query,
+                api=api,
+                token=auth_token,
+                user_id=user_id,
+                llm_client=llm_client
+            )
+            
+            return result
+            
+        except FileNotFoundError as e:
+            return json.dumps({
+                "error": f"Configuration file not found: {str(e)}",
+                "hint": "Ensure config/config.json exists with 'llm' section"
+            }, indent=2)
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Error in generate_workflow_manifest: {error_trace}", file=sys.stderr)
+            return json.dumps({
+                "error": str(e),
+                "traceback": error_trace
+            }, indent=2)

@@ -1,0 +1,69 @@
+{
+  "GenomeAssembly2": {
+    "contigs_fasta": "${params.output_path}/${params.output_file}.contigs.fasta",
+    "assembly_report": "${params.output_path}/${params.output_file}.assembly_report.txt",
+    "assembly_stats": "${params.output_path}/${params.output_file}.assembly_stats.json"
+  },
+  "GenomeAnnotation": {
+    "genome_object": "${params.output_path}/.${params.output_file}/genome.gto",
+    "genbank_file": "${params.output_path}/${params.output_file}.gbk",
+    "gff_file": "${params.output_path}/${params.output_file}.gff"
+  },
+  "ComprehensiveGenomeAnalysis": {
+    "genome_object": "${params.output_path}/.${params.output_file}/genome.gto",
+    "contigs_fasta": "${params.output_path}/${params.output_file}.contigs.fasta",
+    "annotation_report": "${params.output_path}/${params.output_file}.annotation_report.txt",
+    "genbank_file": "${params.output_path}/${params.output_file}.gbk",
+    "gff_file": "${params.output_path}/${params.output_file}.gff"
+  },
+  "Homology": {
+    "blast_output": "${params.output_path}/${params.output_file}.blast_output.txt",
+    "blast_json": "${params.output_path}/${params.output_file}.blast_output.json"
+  },
+  "RNASeq": {
+    "expression_data": "${params.output_path}/${params.output_file}.expression_data.json",
+    "differential_expression": "${params.output_path}/${params.output_file}.differential_expression.txt",
+    "alignment_bam": "${params.output_path}/${params.output_file}.bam"
+  },
+  "TaxonomicClassification": {
+    "classification_report": "${params.output_path}/${params.output_file}.classification_report.txt",
+    "krona_html": "${params.output_path}/${params.output_file}.krona.html"
+  },
+  "Variation": {
+    "vcf_file": "${params.output_path}/${params.output_file}.vcf",
+    "variants_json": "${params.output_path}/${params.output_file}.variants.json"
+  },
+  "MetagenomeBinning": {
+    "bins_directory": "${params.output_path}/${params.output_file}_bins",
+    "binning_report": "${params.output_path}/${params.output_file}.binning_report.txt"
+  },
+  "MetagenomicReadMapping": {
+    "mapping_report": "${params.output_path}/${params.output_file}.mapping_report.txt",
+    "abundance_table": "${params.output_path}/${params.output_file}.abundance.tsv"
+  },
+  "CodonTree": {
+    "tree_file": "${params.output_path}/${params.output_file}.nwk",
+    "tree_svg": "${params.output_path}/${params.output_file}.svg"
+  },
+  "GeneTree": {
+    "tree_file": "${params.output_path}/${params.output_file}.nwk",
+    "alignment_file": "${params.output_path}/${params.output_file}.aln"
+  },
+  "WholeGenomeSNPAnalysis": {
+    "snp_matrix": "${params.output_path}/${params.output_file}.snp_matrix.tsv",
+    "tree_file": "${params.output_path}/${params.output_file}.nwk"
+  },
+  "ViralAssembly": {
+    "contigs_fasta": "${params.output_path}/${params.output_file}.contigs.fasta",
+    "assembly_report": "${params.output_path}/${params.output_file}.assembly_report.txt"
+  },
+  "SARS2Assembly": {
+    "consensus_fasta": "${params.output_path}/${params.output_file}.consensus.fasta",
+    "analysis_report": "${params.output_path}/${params.output_file}.analysis_report.txt"
+  },
+  "FastqUtils": {
+    "processed_reads": "${params.output_path}/${params.output_file}_processed",
+    "qc_report": "${params.output_path}/${params.output_file}.qc_report.txt"
+  }
+}
+
