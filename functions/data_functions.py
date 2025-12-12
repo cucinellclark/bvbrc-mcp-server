@@ -8,7 +8,7 @@ Combines mvp_functions and common_functions from the data-mcp-server.
 import os
 import re
 import json
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional, Set
 from bvbrc_solr_api import create_client, query
 from bvbrc_solr_api.core.solr_http_client import select as solr_select
 CURSOR_BATCH_SIZE = 100
@@ -82,7 +82,7 @@ def query_direct(core: str, filter_str: str = "", options: Dict[str, Any] = None
     )
 
     # Helper to execute a single Solr select call based on the pager's current state
-    def _single_page(cursor_mark: str) -> Tuple[List[Dict[str, Any]], str | None]:
+    def _single_page(cursor_mark: str) -> Tuple[List[Dict[str, Any]], str | None, Optional[int]]:
         params = dict(pager.base_params)
         params["rows"] = pager.rows
         params["sort"] = pager.sort
@@ -95,32 +95,24 @@ def query_direct(core: str, filter_str: str = "", options: Dict[str, Any] = None
             auth=pager.auth,
             timeout=pager.timeout,
         )
+
         response = result.get("response", {})
         docs: List[Dict[str, Any]] = response.get("docs", [])
         next_cursor = result.get("nextCursorMark")
-        return docs, next_cursor
+        num_found = response.get("numFound")
+        return docs, next_cursor, num_found
 
     if countOnly:
-        # Iterate through all pages to compute total count without returning data
-        total_count = 0
-        last_mark: str | None = None
-        current_cursor = pager.cursor
-        while True:
-            docs, next_cursor = _single_page(current_cursor)
-            if not docs:
-                break
-            total_count += len(docs)
-            if next_cursor is None or next_cursor == current_cursor or next_cursor == last_mark:
-                break
-            last_mark = current_cursor
-            current_cursor = next_cursor
-        return {"count": total_count}
+        # Return Solr-reported total without iterating pages
+        docs, _next_cursor, num_found = _single_page(pager.cursor)
+        return {"numFound": num_found if num_found is not None else len(docs)}
 
     # Fetch a single batch/page and return nextCursorId for optional continuation
-    docs, next_cursor = _single_page(pager.cursor)
+    docs, next_cursor, num_found = _single_page(pager.cursor)
     return {
         "results": docs,
         "count": len(docs),
+        "numFound": num_found if num_found is not None else len(docs),
         "nextCursorId": next_cursor,
     }
 
@@ -264,6 +256,66 @@ def format_query_result(result: List[Dict[str, Any]], max_items: int = 10) -> st
         formatted += f"... and {total_count - max_items} more results.\n"
     
     return formatted
+
+
+def get_collection_fields(collection: str) -> List[str]:
+    """
+    Return the list of allowed field names for a collection based on its prompt
+    definition. Falls back to an empty list if the prompt file is missing.
+    """
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    prompts_dir = os.path.join(current_dir, "..", "prompts")
+    prompt_file = os.path.join(prompts_dir, f"{collection}.txt")
+
+    fields: Set[str] = set()
+    try:
+        with open(prompt_file, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.lower().startswith("primary key:"):
+                    primary = stripped.split(":", 1)[1].strip()
+                    if primary:
+                        fields.add(primary)
+                    continue
+                match = re.match(r"([A-Za-z0-9_]+)", stripped)
+                if match:
+                    fields.add(match.group(1))
+    except FileNotFoundError:
+        return []
+    except Exception:
+        # Do not block queries if prompt parsing fails; skip validation instead.
+        return []
+
+    return sorted(fields)
+
+
+def validate_filter_fields(expr: Any, allowed_fields: Set[str]) -> List[str]:
+    """
+    Walk a structured filter expression and return any field names that are not
+    present in the allowed_fields list. If allowed_fields is empty, returns an
+    empty list (no validation performed).
+    """
+    if not allowed_fields:
+        return []
+
+    invalid: Set[str] = set()
+
+    def _walk(node: Any) -> None:
+        if not node:
+            return
+        if isinstance(node, dict) and "filters" in node:
+            for child in node.get("filters", []):
+                _walk(child)
+            return
+        if isinstance(node, dict):
+            field = node.get("field")
+            if field and field not in allowed_fields:
+                invalid.add(str(field))
+
+    _walk(expr)
+    return sorted(invalid)
 
 
 def lookup_parameters(collection: str) -> str:

@@ -194,28 +194,18 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             print(f"Error parsing service list: {e}", file=sys.stderr)
             return f"Error parsing service list: {str(e)}"
 
-    @mcp.tool(name="get_service_info", annotations={"readOnlyHint": True})
-    def service_get_service_info(service_name: str = None, token: Optional[str] = None) -> str:
+    @mcp.tool(name="get_service_submission_schema", annotations={"readOnlyHint": True})
+    def service_get_service_submission_schema(service_name: str = None, token: Optional[str] = None) -> str:
         """
-        Get detailed information about a specific service including required parameters and usage.
-        Always use this tool before submitting a service to understand the required parameters.
+        Fetch the parameter/schema details needed immediately before submitting a service job.
+        Use the helpdesk tool for any other guidance or questions about which service to run.
         
         Args:
-            service_name: Name of the service to get information about (e.g., 'genome_assembly', 'blast', 'primer_design')
+            service_name: Name of the service to get submission schema for (e.g., 'genome_assembly', 'blast', 'primer_design')
             token: Authentication token (optional - will use default if not provided)
             
         Returns:
-            Detailed service documentation including parameters, descriptions, and examples
-            
-        Example service names:
-            - genome_assembly, genome_annotation, comprehensive_genome_analysis
-            - blast, primer_design, variation, tnseq
-            - bacterial_genome_tree, gene_tree, core_genome_mlst, whole_genome_snp
-            - taxonomic_classification, metagenomic_binning, metagenomic_read_mapping
-            - rnaseq, expression_import
-            - sars_wastewater_analysis, viral_assembly, sars_genome_analysis
-            - genome_alignment, proteome_comparison, comparative_systems
-            - docking, similar_genome_finder, fastqutils
+            Structured parameter/schema details required for submission
         """
         if not service_name:
             return "Error: service_name parameter is required"
@@ -232,7 +222,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             return get_service_info(service_name=service_name)
         except Exception as e:
             available = sorted(list(SERVICE_MAP.keys()) + list(SPECIAL_API_SERVICES.keys()))
-            return f"Error getting service info: {str(e)}\n\nAvailable services: {', '.join(available)}"
+            return f"Error getting service submission schema: {str(e)}\n\nAvailable services: {', '.join(available)}"
 
     @mcp.tool(name="get_job_details")
     def service_get_job_details(task_ids: List[str] = None, token: Optional[str] = None) -> str:
@@ -264,11 +254,11 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
         """
         Submit a service job to BV-BRC. This is the unified tool for submitting any BV-BRC service.
         
-        IMPORTANT: Always use the get_service_info tool first to understand the required parameters for the service.
+        IMPORTANT: Always use the get_service_submission_schema tool first to understand the required parameters for the service.
         
         Args:
             service_name: Name of the service to submit (e.g., 'genome_assembly', 'blast', 'rnaseq')
-            parameters: Dictionary of service-specific parameters as documented by get_service_info
+            parameters: Dictionary of service-specific parameters as documented by get_service_submission_schema
             token: Authentication token (optional - will use default if not provided)
             
         Returns:
@@ -286,7 +276,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                    comparative_systems, docking, similar_genome_finder, fastqutils, date
         
         Example usage:
-            1. First call: get_service_info(service_name="blast")
+            1. First call: get_service_submission_schema(service_name="blast")
             2. Then call: submit_service(
                 service_name="blast",
                 parameters={
@@ -311,7 +301,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             service_name = BVBRC_TO_FRIENDLY[service_name]
         
         if parameters is None:
-            return f"Error: parameters dictionary is required. Use get_service_info(service_name='{service_name}') to see required parameters."
+            return f"Error: parameters dictionary is required. Use get_service_submission_schema(service_name='{service_name}') to see required parameters."
         
         # Get authentication token
         auth_token = token_provider.get_token(token)
@@ -327,7 +317,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             try:
                 return service_func(special_api, token=auth_token, user_id=user_id, **parameters)
             except TypeError as e:
-                return f"Error: Invalid parameters for service '{service_name}'. Use get_service_info(service_name='{service_name}') to see correct parameters.\n\nDetails: {str(e)}"
+                return f"Error: Invalid parameters for service '{service_name}'. Use get_service_submission_schema(service_name='{service_name}') to see correct parameters.\n\nDetails: {str(e)}"
             except Exception as e:
                 return f"Error submitting service '{service_name}': {str(e)}"
         
@@ -344,9 +334,12 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             result = service_func(api, token=auth_token, user_id=user_id, **parameters)
             return result
         except TypeError as e:
-            return f"Error: Invalid parameters for service '{service_name}'. Use get_service_info(service_name='{service_name}') to see correct parameters.\n\nDetails: {str(e)}"
+            return f"Error: Invalid parameters for service '{service_name}'. Use get_service_submission_schema(service_name='{service_name}') to see correct parameters.\n\nDetails: {str(e)}"
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
             print(f"Exception in submit_service for '{service_name}': {error_trace}", file=sys.stderr)
-            return f"Error submitting service '{service_name}': {str(e)}\n\nUse get_service_info(service_name='{service_name}') to verify parameters."
+            return f"Error submitting service '{service_name}': {str(e)}\n\nUse get_service_submission_schema(service_name='{service_name}') to verify parameters."
+
+    @mcp.tool(name="generate_workflow_manifest")
+    def generate_workflow_manifest(service_name: str = None, parameters: Dict[str, Any] = None, token: Optional[str] = None) -> str:
