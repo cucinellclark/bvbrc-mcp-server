@@ -171,13 +171,21 @@ Generate a complete workflow manifest following the structure and rules in the s
             # Parse JSON
             workflow_manifest = json.loads(response_text)
             
-            # Update workspace_root with actual user_id
+            # Update workspace_output_folder with actual user_id
             if 'base_context' in workflow_manifest:
-                workflow_manifest['base_context']['workspace_root'] = f"/{user_id}/home"
+                # Replace USERNAME placeholder with actual user_id in workspace_output_folder
+                if 'workspace_output_folder' in workflow_manifest['base_context']:
+                    workspace_path = workflow_manifest['base_context']['workspace_output_folder']
+                    workflow_manifest['base_context']['workspace_output_folder'] = workspace_path.replace('/USERNAME/', f'/{user_id}/')
+                else:
+                    workflow_manifest['base_context']['workspace_output_folder'] = f"/{user_id}/home/WorkspaceOutputFolder"
+                # Remove workspace_root if it exists (legacy field)
+                if 'workspace_root' in workflow_manifest['base_context']:
+                    del workflow_manifest['base_context']['workspace_root']
             else:
                 workflow_manifest['base_context'] = {
                     "base_url": "https://www.bv-brc.org",
-                    "workspace_root": f"/{user_id}/home"
+                    "workspace_output_folder": f"/{user_id}/home/WorkspaceOutputFolder"
                 }
             
             return json.dumps(workflow_manifest, indent=2)

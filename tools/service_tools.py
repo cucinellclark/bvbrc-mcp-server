@@ -23,6 +23,7 @@ from functions.service_functions import (
     start_metacats_app, start_proteome_comparison_app, start_comparative_systems_app,
     start_docking_app, start_similar_genome_finder_app, get_service_info
 )
+from functions.workflow_functions import generate_workflow_manifest_internal
 from typing import Any, List, Dict, Optional
 
 
@@ -397,7 +398,6 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             llm_client = create_llm_client_from_config(config)
             
             # Generate workflow manifest
-            from functions.workflow_functions import generate_workflow_manifest_internal
             result = generate_workflow_manifest_internal(
                 user_query=user_query,
                 api=api,
