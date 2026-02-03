@@ -8,7 +8,7 @@ import json
 import sys
 import base64
 
-async def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str, file_types: str | List[str] = None) -> List[str]:
+async def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str, file_types: str | List[str] = None) -> dict:
     """
     List the contents of a specific workspace directory using the JSON-RPC API.
     This is NOT a generic search function, use `workspace_search` for search functionality.
@@ -60,11 +60,23 @@ async def workspace_ls(api: JsonRpcCaller, paths: List[str], token: str, file_ty
             print_msg = f"workspace_ls file_types: {file_types}, file_types_list: {file_types_list}, Query params: {json.dumps(api_params, indent=2)}"
         print(print_msg, file=sys.stderr)
         result = await api.acall("Workspace.ls", api_params, 1, token)
-        return result
+        
+        # Standardize response structure
+        result_list = result if isinstance(result, list) else [result]
+        return {
+            "items": result_list,
+            "count": len(result_list),
+            "path": paths[0] if paths else "/",
+            "source": "bvbrc-workspace"
+        }
     except Exception as e:
-        return [f"Error listing workspace: {str(e)}"]
+        return {
+            "error": f"Error listing workspace: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
-async def workspace_search(api: JsonRpcCaller, paths: List[str] = None, search_term: str = None, file_extension: str = None, file_types: str | List[str] = None, token: str = None) -> str:
+async def workspace_search(api: JsonRpcCaller, paths: List[str] = None, search_term: str = None, file_extension: str = None, file_types: str | List[str] = None, token: str = None) -> dict:
     """
     Search the entire workspace for a given term and/or file extension and/or file type.
 
@@ -85,12 +97,20 @@ async def workspace_search(api: JsonRpcCaller, paths: List[str] = None, search_t
     if not paths:
         user_id = _get_user_id_from_token(token)
         if not user_id:
-            return [f"Error searching workspace: unable to derive user id from token"]
+            return {
+                "error": "Unable to derive user id from token",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
         paths = [f"/{user_id}/home"]
 
     # At least one of search_term, file_extension, or file_types must be provided
     if not search_term and not file_extension and not file_types:
-        return [f"Error searching workspace: at least one of search_term, file_extension, or file_types parameter is required"]
+        return {
+            "error": "At least one of search_term, file_extension, or file_types parameter is required",
+            "errorType": "INVALID_PARAMETERS",
+            "source": "bvbrc-workspace"
+        }
 
     # Build query conditions based on what's provided
     query_conditions = {}
@@ -154,11 +174,24 @@ async def workspace_search(api: JsonRpcCaller, paths: List[str] = None, search_t
             "paths": paths,
             "query": query_conditions
         },1, token)
-        return result
+        
+        # Standardize response structure
+        result_list = result if isinstance(result, list) else [result]
+        return {
+            "items": result_list,
+            "count": len(result_list),
+            "searchTerm": search_term,
+            "paths": paths,
+            "source": "bvbrc-workspace"
+        }
     except Exception as e:
-        return [f"Error searching workspace: {str(e)}"]
+        return {
+            "error": f"Error searching workspace: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
-async def workspace_get_file_metadata(api: JsonRpcCaller, path: str, token: str) -> str:
+async def workspace_get_file_metadata(api: JsonRpcCaller, path: str, token: str) -> dict:
     """
     Get the metadata of a file from the workspace using the JSON-RPC API.
     
@@ -174,12 +207,25 @@ async def workspace_get_file_metadata(api: JsonRpcCaller, path: str, token: str)
             "objects": [path],
             "metadata_only": True
         },1, token)
-        return result
+        
+        # Add source field to response
+        if isinstance(result, dict):
+            result["source"] = "bvbrc-workspace"
+            return result
+        else:
+            return {
+                "data": result,
+                "source": "bvbrc-workspace"
+            }
     except Exception as e:
-        return [f"Error getting file metadata: {str(e)}"]
+        return {
+            "error": f"Error getting file metadata: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
 
-async def workspace_download_file(api: JsonRpcCaller, path: str, token: str, output_file: str = None, return_data: bool = False) -> str:
+async def workspace_download_file(api: JsonRpcCaller, path: str, token: str, output_file: str = None, return_data: bool = False) -> dict:
     """
     Download a file from the workspace using the JSON-RPC API.
     
@@ -230,14 +276,28 @@ async def workspace_download_file(api: JsonRpcCaller, path: str, token: str, out
             
             # Return appropriate result
             if len(result_parts) == 1:
-                return result_parts[0]
+                return {
+                    "data": result_parts[0],
+                    "source": "bvbrc-workspace"
+                }
             elif len(result_parts) == 2:
                 # Both file write and data return
-                return f"{result_parts[0]}\n\nFile data:\n{result_parts[1]}"
+                return {
+                    "message": result_parts[0],
+                    "data": result_parts[1],
+                    "source": "bvbrc-workspace"
+                }
             else:
-                return content  # Fallback to original behavior
+                return {
+                    "data": content,
+                    "source": "bvbrc-workspace"
+                }
     except Exception as e:
-        return [f"Error downloading file: {str(e)}"]
+        return {
+            "error": f"Error downloading file: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
 async def _get_download_url(api: JsonRpcCaller, path: str, token: str) -> str:
     """
@@ -272,7 +332,7 @@ def _get_user_id_from_token(token: str) -> str:
         print(f"Error extracting user ID from token: {e}")
         return None
 
-async def workspace_upload(api: JsonRpcCaller, filename: str, upload_dir: str = None, token: str = None) -> str:
+async def workspace_upload(api: JsonRpcCaller, filename: str, upload_dir: str = None, token: str = None) -> dict:
     """
     Create an upload URL for a file in the workspace using the JSON-RPC API.
     
@@ -287,12 +347,20 @@ async def workspace_upload(api: JsonRpcCaller, filename: str, upload_dir: str = 
     try:
         
         if not token:
-            return {"error": "Authentication token not provided"}
+            return {
+                "error": "Authentication token not provided",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         if not upload_dir:
             user_id = _get_user_id_from_token(token)
             if not user_id:
-                return {"error": "Unable to derive user id from token"}
+                return {
+                    "error": "Unable to derive user id from token",
+                    "errorType": "INVALID_PARAMETERS",
+                    "source": "bvbrc-workspace"
+                }
             upload_dir = '/' + user_id + '/home'
         download_url_path = os.path.join(upload_dir,os.path.basename(filename))
         # call format: workspace file location, file type, object metadata, object content
@@ -331,7 +399,8 @@ async def workspace_upload(api: JsonRpcCaller, filename: str, upload_dir: str = 
             msg = {
                 "file": os.path.basename(filename),
                 "uploadDirectory": upload_dir,
-                "url": upload_url
+                "url": upload_url,
+                "source": "bvbrc-workspace"
             }
             
             # Upload the file to the upload URL
@@ -347,10 +416,18 @@ async def workspace_upload(api: JsonRpcCaller, filename: str, upload_dir: str = 
             
             return msg
         else:
-            return {"error": "No valid result returned from workspace API"}
+            return {
+                "error": "No valid result returned from workspace API",
+                "errorType": "API_ERROR",
+                "source": "bvbrc-workspace"
+            }
             
     except Exception as e:
-        return {"error": f"Error creating upload URL: {str(e)}"}
+        return {
+            "error": f"Error creating upload URL: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
 async def _workspace_create(api: JsonRpcCaller, objects: list, token: str, create_upload_nodes: bool = True, overwrite: Any = None):
     """
@@ -420,7 +497,7 @@ def _upload_file_to_url(filename: str, upload_url: str, token: str) -> dict:
     except Exception as e:
         return {"success": False, "error": f"Upload failed: {str(e)}"}
 
-async def workspace_create_genome_group(api: JsonRpcCaller, genome_group_path: str, genome_id_list: List[str], token: str) -> str:
+async def workspace_create_genome_group(api: JsonRpcCaller, genome_group_path: str, genome_id_list: List[str], token: str) -> dict:
     """
     Create a genome group in the workspace using the JSON-RPC API.
     """
@@ -436,11 +513,24 @@ async def workspace_create_genome_group(api: JsonRpcCaller, genome_group_path: s
         result = await api.acall("Workspace.create", [{
             "objects": [[genome_group_path, 'genome_group', {}, content]]
         }],1, token)
-        return result
+        
+        # Add source field to response
+        if isinstance(result, dict):
+            result["source"] = "bvbrc-workspace"
+            return result
+        else:
+            return {
+                "data": result,
+                "source": "bvbrc-workspace"
+            }
     except Exception as e:
-        return [f"Error creating genome group: {str(e)}"]
+        return {
+            "error": f"Error creating genome group: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
-async def workspace_create_feature_group(api: JsonRpcCaller, feature_group_path: str, feature_id_list: List[str], token: str) -> str:
+async def workspace_create_feature_group(api: JsonRpcCaller, feature_group_path: str, feature_id_list: List[str], token: str) -> dict:
     """
     Create a feature group in the workspace using the JSON-RPC API.
     """
@@ -455,9 +545,18 @@ async def workspace_create_feature_group(api: JsonRpcCaller, feature_group_path:
         result = await api.acall("Workspace.create", {
             "objects": [[feature_group_path, 'feature_group', {}, content]]
         },1, token)
-        return result[0][0]
+        
+        # Add source field to response
+        return {
+            "data": result[0][0],
+            "source": "bvbrc-workspace"
+        }
     except Exception as e:
-        return [f"Error creating feature group: {str(e)}"]
+        return {
+            "error": f"Error creating feature group: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
 async def workspace_get_object(api: JsonRpcCaller, path: str, metadata_only: bool = False, token: str = None) -> dict:
     """
@@ -472,7 +571,11 @@ async def workspace_get_object(api: JsonRpcCaller, path: str, metadata_only: boo
         Dictionary containing metadata and optionally data
     """
     if not path:
-        return {"error": "Invalid Path(s) to retrieve"}
+        return {
+            "error": "Invalid Path(s) to retrieve",
+            "errorType": "INVALID_PARAMETERS",
+            "source": "bvbrc-workspace"
+        }
 
     try:
         # Decode URL-encoded path
@@ -486,7 +589,11 @@ async def workspace_get_object(api: JsonRpcCaller, path: str, metadata_only: boo
 
         # Validate response structure
         if not result or not result[0] or not result[0][0] or not result[0][0][0] or not result[0][0][0][4]:
-            return {"error": "Object not found"}
+            return {
+                "error": "Object not found",
+                "errorType": "NOT_FOUND",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract metadata from nested array structure
         meta_array = result[0][0][0]
@@ -507,20 +614,28 @@ async def workspace_get_object(api: JsonRpcCaller, path: str, metadata_only: boo
 
         # If metadata only, return just the metadata
         if metadata_only:
-            return {"metadata": metadata}
+            return {
+                "metadata": metadata,
+                "source": "bvbrc-workspace"
+            }
 
         # Get the actual data
         data = result[0][0][1]
 
         return {
             "metadata": metadata,
-            "data": data
+            "data": data,
+            "source": "bvbrc-workspace"
         }
 
     except Exception as e:
-        return {"error": f"Error getting workspace object: {str(e)}"}
+        return {
+            "error": f"Error getting workspace object: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
-async def workspace_get_genome_group_ids(api: JsonRpcCaller, genome_group_path: str, token: str) -> List[str]:
+async def workspace_get_genome_group_ids(api: JsonRpcCaller, genome_group_path: str, token: str) -> dict:
     """
     Get the IDs of the genomes in a genome group using the JSON-RPC API.
     """
@@ -529,22 +644,42 @@ async def workspace_get_genome_group_ids(api: JsonRpcCaller, genome_group_path: 
         result = await workspace_get_object(api, genome_group_path, metadata_only=False, token=token)
         # Check if there was an error
         if "error" in result:
-            return [f"Error getting genome group: {result['error']}"]
+            return {
+                "error": f"Error getting genome group: {result['error']}",
+                "errorType": "API_ERROR",
+                "source": "bvbrc-workspace"
+            }
         # Extract genome IDs from the data
         data = json.loads(result.get("data", {}))
         if not data or "id_list" not in data:
-            return [f"Error: Genome group data not found or invalid structure"]
+            return {
+                "error": "Genome group data not found or invalid structure",
+                "errorType": "INVALID_RESPONSE",
+                "source": "bvbrc-workspace"
+            }
 
         genome_ids = data['id_list']['genome_id']
         # Ensure we return a list of strings
         if isinstance(genome_ids, list):
-            return genome_ids
+            return {
+                "genome_ids": genome_ids,
+                "count": len(genome_ids),
+                "source": "bvbrc-workspace"
+            }
         else:
-            return [str(genome_ids)]
+            return {
+                "genome_ids": [str(genome_ids)],
+                "count": 1,
+                "source": "bvbrc-workspace"
+            }
     except Exception as e:
-        return [f"Error getting genome group IDs: {str(e)}"]
+        return {
+            "error": f"Error getting genome group IDs: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }
 
-async def workspace_get_feature_group_ids(api: JsonRpcCaller, feature_group_path: str, token: str) -> List[str]:
+async def workspace_get_feature_group_ids(api: JsonRpcCaller, feature_group_path: str, token: str) -> dict:
     """
     Get the IDs of the features in a feature group using the JSON-RPC API.
     """
@@ -554,20 +689,40 @@ async def workspace_get_feature_group_ids(api: JsonRpcCaller, feature_group_path
 
         # Check if there was an error
         if "error" in result:
-            return [f"Error getting feature group: {result['error']}"]
+            return {
+                "error": f"Error getting feature group: {result['error']}",
+                "errorType": "API_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract feature IDs from the data
         data = json.loads(result.get("data", {}))
         if not data or "id_list" not in data:
-            return [f"Error: Feature group data not found or invalid structure"]
+            return {
+                "error": "Feature group data not found or invalid structure",
+                "errorType": "INVALID_RESPONSE",
+                "source": "bvbrc-workspace"
+            }
 
         feature_ids = data['id_list']['feature_id']
 
         # Ensure we return a list of strings
         if isinstance(feature_ids, list):
-            return feature_ids
+            return {
+                "feature_ids": feature_ids,
+                "count": len(feature_ids),
+                "source": "bvbrc-workspace"
+            }
         else:
-            return [str(feature_ids)]
+            return {
+                "feature_ids": [str(feature_ids)],
+                "count": 1,
+                "source": "bvbrc-workspace"
+            }
 
     except Exception as e:
-        return [f"Error getting feature group IDs: {str(e)}"]
+        return {
+            "error": f"Error getting feature group IDs: {str(e)}",
+            "errorType": "API_ERROR",
+            "source": "bvbrc-workspace"
+        }

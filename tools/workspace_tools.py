@@ -101,7 +101,7 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
     """Register workspace tools with the FastMCP server"""
     
     @mcp.tool()
-    async def workspace_ls_tool(token: Optional[str] = None, paths: List[str] = None, file_types: Optional[str | List[str]] = None) -> str:
+    async def workspace_ls_tool(token: Optional[str] = None, paths: List[str] = None, file_types: Optional[str | List[str]] = None) -> dict:
         """List the contents of the workspace.
 
         Args:
@@ -118,7 +118,11 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         # Get the appropriate token (automatically checks Authorization header in HTTP mode)
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -128,10 +132,10 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         print(f"Listing paths: {paths}, user_id: {user_id}, file_type: {file_types}", file=sys.stderr)
         result = await workspace_ls(api, paths, auth_token, file_types )
         print(f"Listing result: {result}", file=sys.stderr)
-        return str(result)
+        return result
 
     @mcp.tool()
-    async def workspace_search_tool(token: Optional[str] = None, search_term: Optional[str] = None, paths: List[str] = None, file_extension: Optional[str] = None, file_types: Optional[str | List[str]] = None) -> str:
+    async def workspace_search_tool(token: Optional[str] = None, search_term: Optional[str] = None, paths: List[str] = None, file_extension: Optional[str] = None, file_types: Optional[str | List[str]] = None) -> dict:
         """Search the workspace for a given term and/or file extension.
 
         Args:
@@ -148,7 +152,11 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         Note: Paths are relative to the user's home directory. If no paths are provided, the search will be performed in the user's home directory.
         """
         if not search_term and not file_extension and not file_types:
-            return "Error: at least one of search_term, file_extension, or file_types parameter is required"
+            return {
+                "error": "at least one of search_term, file_extension, or file_types parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         if not search_term:
             search_term = None
@@ -159,7 +167,11 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         # Get the appropriate token (automatically checks Authorization header in HTTP mode)
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -168,10 +180,10 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         print(f"Searching in paths: {paths}, user_id: {user_id}, term: {search_term}, extension: {file_extension}, file_types: {file_types}", file=sys.stderr)
         result = await workspace_search(api, paths, search_term, file_extension, file_types, auth_token)
         print(f"Search result: {result}", file=sys.stderr)
-        return str(result)
+        return result
 
     @mcp.tool()
-    async def workspace_get_file_metadata_tool(token: Optional[str] = None, path: str = None) -> str:
+    async def workspace_get_file_metadata_tool(token: Optional[str] = None, path: str = None) -> dict:
         """Get the metadata of a file from the workspace.
 
         Args:
@@ -181,7 +193,11 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution and logging
         user_id = extract_userid_from_token(auth_token)
@@ -190,10 +206,10 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         print(f"Getting metadata for path: {resolved_path}, user_id: {user_id}")
 
         result = await workspace_get_file_metadata(api, resolved_path, auth_token)
-        return str(result)
+        return result
 
     @mcp.tool()
-    async def workspace_download_file_tool(token: Optional[str] = None, path: str = None, output_file: Optional[str] = None, return_data: bool = False) -> str:
+    async def workspace_download_file_tool(token: Optional[str] = None, path: str = None, output_file: Optional[str] = None, return_data: bool = False) -> dict:
         """Download a file from the workspace.
 
         Args:
@@ -208,7 +224,11 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution and logging
         user_id = extract_userid_from_token(auth_token)
@@ -217,10 +237,10 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         print(f"Downloading file from path: {resolved_path}, user_id: {user_id}, output_file: {output_file}, return_data: {return_data}")
 
         result = await workspace_download_file(api, resolved_path, auth_token, output_file, return_data)
-        return str(result)
+        return result
 
     @mcp.tool()
-    async def workspace_upload(token: Optional[str] = None, filename: str = None, upload_dir: str = None) -> str:
+    async def workspace_upload(token: Optional[str] = None, filename: str = None, upload_dir: str = None) -> dict:
         """Create an upload URL for a file in the workspace.
 
         Args:
@@ -229,12 +249,20 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
             upload_dir: Directory to upload the file to (relative to user's home directory, defaults to user's home directory).
         """
         if not filename:
-            return "Error: filename parameter is required"
+            return {
+                "error": "filename parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution and logging
         user_id = extract_userid_from_token(auth_token)
@@ -248,10 +276,10 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         print(f"Uploading file: {filename}, user_id: {user_id}, upload_dir: {upload_dir}")
 
         result = await workspace_upload(api, filename, upload_dir, auth_token)
-        return str(result)
+        return result
 
     @mcp.tool()
-    async def create_genome_group(token: Optional[str] = None, genome_group_name: str = None, genome_id_list: str = None, genome_group_path: str = None) -> str:
+    async def create_genome_group(token: Optional[str] = None, genome_group_name: str = None, genome_id_list: str = None, genome_group_path: str = None) -> dict:
         """Create a genome group in the workspace.
 
         Args:
@@ -261,15 +289,27 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
             genome_group_path: Full path for the genome group. If not provided, defaults to /<user_id>/home/<genome_group_name>.
         """
         if not genome_group_name:
-            return "Error: genome_group_name parameter is required"
+            return {
+                "error": "genome_group_name parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         if not genome_id_list:
-            return "Error: genome_id_list parameter is required"
+            return {
+                "error": "genome_id_list parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -291,15 +331,19 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         elif isinstance(genome_id_list, list):
             genome_id_list_parsed = [str(gid).strip() for gid in genome_id_list if gid]
         else:
-            return f"Error: genome_id_list must be a string or list, got {type(genome_id_list)}"
+            return {
+                "error": f"genome_id_list must be a string or list, got {type(genome_id_list)}",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
         
         print("genome_id_list_parsed", genome_id_list_parsed, file=sys.stderr)
         print("genome_id_list_parsed length", len(genome_id_list_parsed), file=sys.stderr)
         result = await workspace_create_genome_group(api, genome_group_path, genome_id_list_parsed, auth_token)
-        return str(result)
+        return result
 
     @mcp.tool()
-    async def create_feature_group(token: Optional[str] = None, feature_group_name: str = None, feature_id_list: str = None, feature_group_path: str = None) -> str:
+    async def create_feature_group(token: Optional[str] = None, feature_group_name: str = None, feature_id_list: str = None, feature_group_path: str = None) -> dict:
         """Create a feature group in the workspace.
 
         Args:
@@ -309,13 +353,25 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
             feature_group_path: Full path for the feature group. If not provided, defaults to /<user_id>/home/<feature_group_name>.
         """
         if not feature_group_name and not feature_group_path:
-            return "Error: feature_group_name or feature_group_path parameter is required"
+            return {
+                "error": "feature_group_name or feature_group_path parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         if feature_group_name and feature_group_path:
-            return "Error: only one of feature_group_name or feature_group_path parameter can be provided"
+            return {
+                "error": "only one of feature_group_name or feature_group_path parameter can be provided",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         if not feature_id_list:
-            return "Error: feature_id_list parameter is required"
+            return {
+                "error": "feature_id_list parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         # The LLM is consistently forgetting the final '.' in the feature IDs
         feature_id_list = feature_id_list.split(',')
@@ -333,7 +389,11 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -348,10 +408,10 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         print(f"Creating feature group: {feature_group_name}, user_id: {user_id}, path: {feature_group_path}")
 
         result = await workspace_create_feature_group(api, feature_group_path, feature_id_list, auth_token)
-        return json.dumps(result)
+        return result
 
     @mcp.tool()
-    async def get_genome_group_ids(token: Optional[str] = None, genome_group_name: str = None, genome_group_path: str = None) -> List[str]:
+    async def get_genome_group_ids(token: Optional[str] = None, genome_group_name: str = None, genome_group_path: str = None) -> dict:
         """Get the IDs of the genomes in a genome group.
 
         Args:
@@ -365,15 +425,27 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
             List of genome IDs in the genome group.
         """
         if not genome_group_name and not genome_group_path:
-            return "Error: genome_group_name or genome_group_path parameter is required"
+            return {
+                "error": "genome_group_name or genome_group_path parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
         
         if genome_group_name and genome_group_path:
-            return "Error: only one of genome_group_name or genome_group_path parameter can be provided"
+            return {
+                "error": "only one of genome_group_name or genome_group_path parameter can be provided",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -390,7 +462,7 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
         return result
 
     @mcp.tool()
-    async def get_feature_group_ids(token: Optional[str] = None, feature_group_name: str = None, feature_group_path: str = None) -> List[str]:
+    async def get_feature_group_ids(token: Optional[str] = None, feature_group_name: str = None, feature_group_path: str = None) -> dict:
         """Get the IDs of the features in a feature group.
 
         Args:
@@ -399,15 +471,27 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
             feature_group_path: Full path for the feature group. If not provided, defaults to /<user_id>/home/Feature Groups/<feature_group_name>.
         """
         if not feature_group_name and not feature_group_path:
-            return "Error: feature_group_name or feature_group_path parameter is required"
+            return {
+                "error": "feature_group_name or feature_group_path parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         if feature_group_name and feature_group_path:
-            return "Error: only one of feature_group_name or feature_group_path parameter can be provided"
+            return {
+                "error": "only one of feature_group_name or feature_group_path parameter can be provided",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-workspace"
+            }
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return "Error: No authentication token available"
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_ERROR",
+                "source": "bvbrc-workspace"
+            }
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)

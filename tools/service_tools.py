@@ -188,12 +188,24 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                     if bvbrc_id in BVBRC_TO_FRIENDLY:
                         friendly_names.append(BVBRC_TO_FRIENDLY[bvbrc_id])
                 
-                return json.dumps(sorted(friendly_names), indent=2)
+                return {
+                    "services": sorted(friendly_names),
+                    "count": len(friendly_names),
+                    "source": "bvbrc-service"
+                }
             
-            return "[]"
+            return {
+                "services": [],
+                "count": 0,
+                "source": "bvbrc-service"
+            }
         except Exception as e:
             print(f"Error parsing service list: {e}", file=sys.stderr)
-            return f"Error parsing service list: {str(e)}"
+            return {
+                "error": f"Error parsing service list: {str(e)}",
+                "errorType": "API_ERROR",
+                "source": "bvbrc-service"
+            }
 
     @mcp.tool(name="get_service_submission_schema", annotations={"readOnlyHint": True})
     def service_get_service_submission_schema(service_name: str = None, token: Optional[str] = None) -> str:
@@ -369,20 +381,30 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
         engine that will resolve variables and submit jobs in dependency order.
         """
         if not user_query:
-            return json.dumps({
+            return {
                 "error": "user_query parameter is required",
-                "example": "generate_workflow_manifest(user_query='Assemble reads and annotate the genome')"
-            }, indent=2)
+                "errorType": "INVALID_PARAMETERS",
+                "example": "generate_workflow_manifest(user_query='Assemble reads and annotate the genome')",
+                "source": "bvbrc-service"
+            }
         
         # Get authentication token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return json.dumps({"error": "No authentication token available"}, indent=2)
+            return {
+                "error": "No authentication token available",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-service"
+            }
         
         # Extract user ID
         user_id = extract_userid_from_token(auth_token)
         if not user_id:
-            return json.dumps({"error": "Could not extract user ID from token"}, indent=2)
+            return {
+                "error": "Could not extract user ID from token",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-service"
+            }
         
         try:
             # Load LLM configuration
@@ -409,15 +431,19 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             return result
             
         except FileNotFoundError as e:
-            return json.dumps({
+            return {
                 "error": f"Configuration file not found: {str(e)}",
-                "hint": "Ensure config/config.json exists with 'llm' section"
-            }, indent=2)
+                "errorType": "NOT_FOUND",
+                "hint": "Ensure config/config.json exists with 'llm' section",
+                "source": "bvbrc-service"
+            }
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
             print(f"Error in generate_workflow_manifest: {error_trace}", file=sys.stderr)
-            return json.dumps({
+            return {
                 "error": str(e),
-                "traceback": error_trace
-            }, indent=2)
+                "errorType": "API_ERROR",
+                "traceback": error_trace,
+                "source": "bvbrc-service"
+            }

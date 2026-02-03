@@ -68,15 +68,25 @@ def get_service_info(service_name: str) -> str:
     except Exception as e:
         raise Exception(f"Error reading service info for '{service_name}': {str(e)}")
 
-async def enumerate_apps(api: JsonRpcCaller, token: str = None, user_id: str = None) -> List[str]:
+async def enumerate_apps(api: JsonRpcCaller, token: str = None, user_id: str = None) -> dict:
     try:
         result = await api.acall("AppService.enumerate_apps", {}, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_date_app(api: JsonRpcCaller, token: str = None, user_id: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "Date"
@@ -94,11 +104,21 @@ async def start_date_app(api: JsonRpcCaller, token: str = None, user_id: str = N
         
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_genome_annotation_app(api: JsonRpcCaller, token: str = None, user_id: str = None, genome_id: str = None, contigs: str = None, scientific_name: str = None, tax_id: str = None, my_label: str = None, reference_genome_id: str = None, taxonomy_id: str = None, code: int = 0, domain: str = "auto", public: bool = False, queue_nowait: bool = False, skip_indexing: bool = False, skip_workspace_output: bool = False, output_path: str = None, output_file: str = None, lowvan_min_contig_length: int = 300, lowvan_max_contig_length: int = 35000, reference_virus_name: str = None, fix_errors: bool = None, fix_frameshifts: bool = None, verbose_level: int = None, workflow: str = None, recipe: str = None, disable_replication: bool = None, analyze_quality: bool = None, assembly_output: str = None, custom_pipeline: Dict = None) -> str:
     app_name = "GenomeAnnotation"
@@ -152,21 +172,41 @@ async def start_genome_annotation_app(api: JsonRpcCaller, token: str = None, use
         data = ["GenomeAnnotation", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
-async def query_tasks(api: JsonRpcCaller, token: str = None, user_id: str = None, params: Dict[str, Any] = None) -> str:
+async def query_tasks(api: JsonRpcCaller, token: str = None, user_id: str = None, params: Dict[str, Any] = None) -> dict:
     try:
         result = await api.acall("AppService.query_tasks", [params['task_ids']], _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_genome_assembly_app(api: JsonRpcCaller, token: str = None, user_id: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, max_bases: int = 10000000000, recipe: str = "auto", racon_iter: int = 2, pilon_iter: int = 2, trim: bool = False, target_depth: int = 200, normalize: bool = False, filtlong: bool = False, genome_size: int = 5000000, min_contig_len: int = 300, min_contig_cov: float = 5.0, output_path: str = None, output_file: str = None, debug: int = 0) -> str:
     app_name = "GenomeAssembly2"
@@ -197,11 +237,21 @@ async def start_genome_assembly_app(api: JsonRpcCaller, token: str = None, user_
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return str(result)
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": str(result),
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return json.dumps({"error": str(e)})
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_comprehensive_genome_analysis_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_type: str = None, output_path: str = None, output_file: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, reference_assembly: str = None, recipe: str = "auto", racon_iter: int = 2, pilon_iter: int = 2, trim: bool = False, normalize: bool = False, filtlong: bool = False, target_depth: int = 200, genome_size: int = 5000000, min_contig_len: int = 300, min_contig_cov: float = 5.0, gto: str = None, genbank_file: str = None, contigs: str = None, scientific_name: str = None, taxonomy_id: int = None, code: int = 0, domain: str = "auto", public: bool = False, queue_nowait: bool = False, skip_indexing: bool = False, reference_genome_id: str = None, analyze_quality: bool = None, debug_level: int = 0) -> str:
     app_name = "ComprehensiveGenomeAnalysis"
@@ -245,11 +295,21 @@ async def start_comprehensive_genome_analysis_app(api: JsonRpcCaller, token: str
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_blast_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_type: str = None, input_source: str = None, input_fasta_data: str = None, input_id_list: List[str] = None, input_fasta_file: str = None, input_feature_group: str = None, input_genome_group: str = None, db_type: str = None, db_source: str = None, db_fasta_data: str = None, db_fasta_file: str = None, db_id_list: List[str] = None, db_feature_group: str = None, db_genome_group: str = None, db_genome_list: List[str] = None, db_taxon_list: List[str] = None, db_precomputed_database: str = None, blast_program: str = None, blast_evalue_cutoff: float = 1e-5, blast_max_hits: int = 300, blast_min_coverage: int = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "Homology"
@@ -288,15 +348,30 @@ async def start_blast_app(api: JsonRpcCaller, token: str = None, user_id: str = 
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         print(f"result type: {type(result)}, result: {result}", file=sys.stdout)
         if result is None:
-            return "Error: No result returned from API"
+            return {
+                "error": "No result returned from API",
+                "errorType": "API_ERROR",
+                "source": "bvbrc-service"
+            }
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"Exception in start_blast_app: {error_trace}", file=sys.stderr)
-        return f"Error: {str(e)}\nTraceback: {error_trace}"
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "traceback": error_trace,
+            "source": "bvbrc-service"
+        }
 
 async def start_primer_design_app(api: JsonRpcCaller, token: str = None, user_id: str = None, output_file: str = None, output_path: str = None, input_type: str = None, sequence_input: str = None, SEQUENCE_ID: str = None, SEQUENCE_TARGET: List[List[int]] = None, SEQUENCE_INCLUDED_REGION: List[int] = None, SEQUENCE_EXCLUDED_REGION: List[int] = None, SEQUENCE_OVERLAP_JUNCTION_LIST: List[List[int]] = None, PRIMER_PICK_INTERNAL_OLIGO: int = None, PRIMER_PRODUCT_SIZE_RANGE: List[List[int]] = None, PRIMER_NUM_RETURN: int = None, PRIMER_MIN_SIZE: int = None, PRIMER_OPT_SIZE: int = None, PRIMER_MAX_SIZE: int = None, PRIMER_MAX_TM: float = None, PRIMER_MIN_TM: float = None, PRIMER_OPT_TM: float = None, PRIMER_PAIR_MAX_DIFF_TM: float = None, PRIMER_MAX_GC: float = None, PRIMER_MIN_GC: float = None, PRIMER_OPT_GC: float = None, PRIMER_SALT_MONOVALENT: float = None, PRIMER_SALT_DIVALENT: float = None, PRIMER_DNA_CONC: float = None, PRIMER_DNTP_CONC: float = None) -> str:
     app_name = "PrimerDesign"
@@ -336,11 +411,21 @@ async def start_primer_design_app(api: JsonRpcCaller, token: str = None, user_id
         data = ["PrimerDesign", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_variation_app(api: JsonRpcCaller, token: str = None, user_id: str = None, reference_genome_id: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, mapper: str = "BWA-mem", caller: str = "FreeBayes", output_path: str = None, output_file: str = None, debug: bool = False) -> str:
     app_name = "Variation"
@@ -363,11 +448,21 @@ async def start_variation_app(api: JsonRpcCaller, token: str = None, user_id: st
         data = ["Variation", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_tnseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None, experimental_conditions: List[str] = None, contrasts: List[str] = None, read_files: List[Dict] = None, reference_genome_id: str = None, recipe: str = "gumbel", protocol: str = "sassetti", primer: str = "", output_path: str = None, output_file: str = None) -> str:
     app_name = "TnSeq"
@@ -390,11 +485,21 @@ async def start_tnseq_app(api: JsonRpcCaller, token: str = None, user_id: str = 
         data = ["TnSeq", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_bacterial_genome_tree_app(api: JsonRpcCaller, token: str = None, user_id: str = None, output_path: str = None, output_file: str = None, genome_ids: List[str] = None, genome_groups: List[str] = None, optional_genome_ids: List[str] = None, genome_metadata_fields: str = None, number_of_genes: int = 20, bootstraps: int = 100, max_genomes_missing: int = 0, max_allowed_dups: int = 0) -> str:
     app_name = "CodonTree"
@@ -423,11 +528,21 @@ async def start_bacterial_genome_tree_app(api: JsonRpcCaller, token: str = None,
         print("data", data)
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_gene_tree_app(api: JsonRpcCaller, token: str = None, user_id: str = None, sequences: List[str] = None, alignment_program: str = None, trim_threshold: float = None, gap_threshold: float = None, alphabet: str = None, substitution_model: str = None, bootstrap: int = None, recipe: str = "RAxML", tree_type: str = None, feature_metadata_fields: str = None, genome_metadata_fields: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "GeneTree"
@@ -454,11 +569,21 @@ async def start_gene_tree_app(api: JsonRpcCaller, token: str = None, user_id: st
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_core_genome_mlst_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_genome_type: str = "genome_group", analysis_type: str = "chewbbaca", input_genome_group: str = None, input_genome_fasta: str = None, schema_location: str = None, input_schema_selection: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "CoreGenomeMLST"
@@ -480,11 +605,21 @@ async def start_core_genome_mlst_app(api: JsonRpcCaller, token: str = None, user
         data = ["CoreGenomeMLST", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_whole_genome_snp_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_genome_type: str = None, majority_threshold: float = 0.5, min_mid_linkage: int = 10, max_mid_linkage: int = 40, analysis_type: str = "Whole Genome SNP Analysis", input_genome_group: str = None, input_genome_fasta: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "WholeGenomeSNPAnalysis"
@@ -507,11 +642,21 @@ async def start_whole_genome_snp_app(api: JsonRpcCaller, token: str = None, user
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_taxonomic_classification_app(api: JsonRpcCaller, token: str = None, user_id: str = None, host_genome: str = "no_host", analysis_type: str = "16S", paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List[Dict] = None, database: str = "SILVA", save_classified_sequences: bool = False, save_unclassified_sequences: bool = False, confidence_interval: float = 0.1, output_path: str = None, output_file: str = None) -> str:
     app_name = "TaxonomicClassification"
@@ -536,11 +681,21 @@ async def start_taxonomic_classification_app(api: JsonRpcCaller, token: str = No
         data = ["TaxonomicClassification", params, { 'base_url': 'https://www.bv-brc.org' }]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_metagenomic_binning_app(api: JsonRpcCaller, token: str = None, user_id: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, contigs: str = None, genome_group: str = None, skip_indexing: bool = False, recipe: str = None, viral_recipe: str = None, output_path: str = None, output_file: str = None, force_local_assembly: bool = False, force_inline_annotation: bool = True, perform_bacterial_binning: bool = True, perform_viral_binning: bool = False, perform_viral_annotation: bool = False, perform_bacterial_annotation: bool = True, assembler: str = "", danglen: str = "50", min_contig_len: int = 400, min_contig_cov: float = 4.0) -> str:
     app_name = "MetagenomeBinning"
@@ -574,11 +729,21 @@ async def start_metagenomic_binning_app(api: JsonRpcCaller, token: str = None, u
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_metagenomic_read_mapping_app(api: JsonRpcCaller, token: str = None, user_id: str = None, gene_set_type: str = None, gene_set_name: str = None, gene_set_fasta: str = None, gene_set_feature_group: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "MetagenomicReadMapping"
@@ -601,11 +766,21 @@ async def start_metagenomic_read_mapping_app(api: JsonRpcCaller, token: str = No
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_rnaseq_app(api: JsonRpcCaller, token: str = None, user_id: str = None, experimental_conditions: List[str] = None, contrasts: str = None, strand_specific: bool = True, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List[Dict] = None, reference_genome_id: str = None, genome_type: str = None, recipe: str = "HTSeq-DESeq", host_ftp: str = None, output_path: str = None, output_file: str = None, trimming: bool = False, unit_test: str = None, skip_sampling: str = None) -> str:
     app_name = "RNASeq"
@@ -634,11 +809,21 @@ async def start_rnaseq_app(api: JsonRpcCaller, token: str = None, user_id: str =
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_expression_import_app(api: JsonRpcCaller, token: str = None, user_id: str = None, xfile: str = None, mfile: str = None, ustring: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "ExpressionImport"
@@ -657,11 +842,21 @@ async def start_expression_import_app(api: JsonRpcCaller, token: str = None, use
         data = ["ExpressionImport", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_sars_wastewater_analysis_app(api: JsonRpcCaller, token: str = None, user_id: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List[Dict] = None, recipe: str = "auto", primers: str = "ARTIC", minimum_base_quality_score: int = 20, minimum_genome_coverage: int = 60, agg_minimum_lineage_abundance: float = 0.01, minimum_coverage_depth: int = 0, confirmedonly: bool = False, minimum_lineage_abundance: float = 0.001, coverage_estimate: int = 10, timeseries_plot_interval: str = "0", primer_version: str = None, barcode_csv: str = None, sample_metadata_csv: str = None, keep_intermediates: bool = True, output_path: str = None, output_file: str = None, debug_level: int = 0) -> str:
     app_name = "SARSWastewaterAnalysis"
@@ -695,11 +890,21 @@ async def start_sars_wastewater_analysis_app(api: JsonRpcCaller, token: str = No
         data = ["SARSWastewaterAnalysis", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_sequence_submission_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_source: str = None, input_fasta_data: str = None, input_fasta_file: str = None, input_genome_group: str = None, metadata: str = None, affiliation: str = None, first_name: str = None, last_name: str = None, email: str = None, consortium: str = None, country: str = None, phoneNumber: str = None, street: str = None, postal_code: str = None, city: str = None, state: str = None, numberOfSequences: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "SequenceSubmission"
@@ -732,11 +937,21 @@ async def start_sequence_submission_app(api: JsonRpcCaller, token: str = None, u
         data = ["SequenceSubmission", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_influenza_ha_subtype_conversion_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_source: str = None, input_fasta_data: str = None, input_fasta_file: str = None, input_feature_group: str = None, input_feature_list: str = None, types: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "InfluenzaHASubtypeConversion"
@@ -758,11 +973,21 @@ async def start_influenza_ha_subtype_conversion_app(api: JsonRpcCaller, token: s
         data = ["InfluenzaHASubtypeConversion", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_subspecies_classification_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_source: str = None, input_fasta_data: str = None, input_fasta_file: str = None, input_genome_group: str = None, ref_msa_fasta: str = None, virus_type: str = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "SubspeciesClassification"
@@ -784,11 +1009,21 @@ async def start_subspecies_classification_app(api: JsonRpcCaller, token: str = N
         data = ["SubspeciesClassification", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_viral_assembly_app(api: JsonRpcCaller, token: str = None, user_id: str = None, paired_end_lib: Dict = None, single_end_lib: Dict = None, srr_id: str = None, recipe: str = "auto", module: str = None, viral_size: str = "5M", output_path: str = None, output_file: str = None, debug: int = 0) -> str:
     app_name = "ViralAssembly"
@@ -811,11 +1046,21 @@ async def start_viral_assembly_app(api: JsonRpcCaller, token: str = None, user_i
         data = ["ViralAssembly", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_fastq_utils_app(api: JsonRpcCaller, token: str = None, user_id: str = None, reference_genome_id: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_libs: List[Dict] = None, output_path: str = None, output_file: str = None, recipe: List[str] = None) -> str:
     app_name = "FastqUtils"
@@ -837,11 +1082,21 @@ async def start_fastq_utils_app(api: JsonRpcCaller, token: str = None, user_id: 
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_genome_alignment_app(api: JsonRpcCaller, token: str = None, user_id: str = None, genome_ids: List[str] = None, recipe: str = "progressiveMauve", seedWeight: float = None, maxGappedAlignerLength: float = None, maxBreakpointDistanceScale: float = None, conservationDistanceScale: float = None, weight: float = None, minScaledPenalty: float = None, hmmPGoHomologous: float = None, hmmPGoUnrelated: float = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "GenomeAlignment"
@@ -867,11 +1122,21 @@ async def start_genome_alignment_app(api: JsonRpcCaller, token: str = None, user
         data = ["GenomeAlignment", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_sars_genome_analysis_app(api: JsonRpcCaller, token: str = None, user_id: str = None, paired_end_libs: List[Dict] = None, single_end_libs: List[Dict] = None, srr_ids: List[str] = None, recipe: str = "auto", primers: str = "ARTIC", primer_version: str = None, min_depth: int = 100, max_depth: int = 8000, keep_intermediates: int = 0, output_path: str = None, output_file: str = None, debug_level: int = 0) -> str:
     app_name = "SARS2Assembly"
@@ -897,11 +1162,21 @@ async def start_sars_genome_analysis_app(api: JsonRpcCaller, token: str = None, 
         data = ["SARS2Assembly", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_msa_snp_analysis_app(api: JsonRpcCaller, token: str = None, user_id: str = None, input_status: str = "unaligned", input_type: str = "input_group", fasta_files: List[Dict] = None, select_genomegroup: List[str] = None, feature_groups: List[str] = None, feature_list: List[str] = None, genome_list: List[str] = None, aligner: str = "Muscle", alphabet: str = "dna", fasta_keyboard_input: str = "", ref_type: str = "none", strategy: str = "auto", ref_string: str = "", output_path: str = None, output_file: str = None) -> str:
     app_name = "MSA"
@@ -930,11 +1205,21 @@ async def start_msa_snp_analysis_app(api: JsonRpcCaller, token: str = None, user
         data = ["MSA", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_metacats_app(api: JsonRpcCaller, token: str = None, user_id: str = None, output_path: str = None, output_file: str = None, p_value: float = 0.05, year_ranges: str = None, metadata_group: str = None, input_type: str = None, alphabet: str = "na", groups: List[str] = None, alignment_file: str = None, group_file: str = None, alignment_type: str = None, auto_groups: List[Dict] = None) -> str:
     app_name = "MetaCATS"
@@ -960,11 +1245,21 @@ async def start_metacats_app(api: JsonRpcCaller, token: str = None, user_id: str
         data = ["MetaCATS", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_proteome_comparison_app(api: JsonRpcCaller, token: str = None, user_id: str = None, genome_ids: List[str] = None, user_genomes: List[str] = None, user_feature_groups: List[str] = None, reference_genome_index: int = 1, min_seq_cov: float = 0.30, max_e_val: float = 1e-5, min_ident: float = 0.1, min_positives: float = 0.2, output_path: str = None, output_file: str = None) -> str:
     app_name = "GenomeComparison"
@@ -988,11 +1283,21 @@ async def start_proteome_comparison_app(api: JsonRpcCaller, token: str = None, u
         data = ["GenomeComparison", params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_comparative_systems_app(api: JsonRpcCaller, token: str = None, user_id: str = None, output_path: str = None, output_file: str = None, genome_ids: List[str] = None, genome_groups: List[str] = None) -> str:
     app_name = "ComparativeSystems"
@@ -1010,11 +1315,21 @@ async def start_comparative_systems_app(api: JsonRpcCaller, token: str = None, u
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_docking_app(api: JsonRpcCaller, token: str = None, user_id: str = None, protein_input_type: str = None, input_pdb: List[str] = None, user_pdb_file: List[str] = None, ligand_library_type: str = None, ligand_named_library: str = None, ligand_smiles_list: List[str] = None, ligand_ws_file: str = None, top_n: int = None, batch_size: int = 10, output_path: str = None, output_file: str = None) -> str:
     app_name = "Docking"
@@ -1039,11 +1354,21 @@ async def start_docking_app(api: JsonRpcCaller, token: str = None, user_id: str 
         data = [app_name, params, {}]
         result = await api.acall("AppService.start_app2", data, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
 
 async def start_similar_genome_finder_app(api: JsonRpcCaller, token: str = None, user_id: str = None, selectedGenomeId: str = None, fasta_file: str = None, max_pvalue: float = None, max_distance: float = None, max_hits: int = None, include_reference: bool = None, include_representative: bool = None, include_bacterial: bool = None, include_viral: bool = None, output_path: str = None, output_file: str = None) -> str:
     app_name = "SimilarGenomeFinder"
@@ -1066,8 +1391,18 @@ async def start_similar_genome_finder_app(api: JsonRpcCaller, token: str = None,
         
         result = await api.acall(function_call, params, _generate_numerical_uuid(), token)
         if isinstance(result, (list, dict)):
-            return json.dumps(result, indent=2)
-        return result
+            return {
+                "data": result,
+                "source": "bvbrc-service"
+            }
+        return {
+            "data": result,
+            "source": "bvbrc-service"
+        }
     except Exception as e:
         print(e)
-        return []
+        return {
+            "error": str(e),
+            "errorType": "API_ERROR",
+            "source": "bvbrc-service"
+        }
