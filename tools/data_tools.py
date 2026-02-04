@@ -6,6 +6,7 @@ This module contains MCP tools for querying MVP (Minimum Viable Product) data fr
 """
 
 import json
+import subprocess
 from typing import Optional, Dict, Any, List
 
 from fastmcp import FastMCP
@@ -25,6 +26,79 @@ from functions.data_functions import (
     get_collection_fields,
     validate_filter_fields
 )
+
+
+def convert_json_to_tsv(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Convert a list of JSON objects to TSV format using jq.
+    
+    Args:
+        results: List of dictionaries to convert
+        
+    Returns:
+        Dict with either:
+        - {"tsv": <tsv_string>} on success
+        - {"error": <error_message>} on failure
+    """
+    if not results:
+        # Empty results - return empty TSV
+        print("  TSV conversion: Empty results, returning empty TSV")
+        return {"tsv": ""}
+    
+    print(f"  TSV conversion: Starting conversion of {len(results)} results to TSV format...")
+    
+    try:
+        # Prepare jq command to convert JSON array to TSV
+        # This extracts all unique keys from the first object as headers,
+        # then converts each object to a TSV row
+        jq_command = [
+            "jq",
+            "-r",
+            "(.[0] | keys_unsorted) as $keys | $keys, (.[] | [.[$keys[]] | tostring]) | @tsv"
+        ]
+        
+        # Convert results to JSON string
+        json_input = json.dumps(results)
+        print(f"  TSV conversion: Running jq command to convert JSON to TSV...")
+        
+        # Run jq command
+        result = subprocess.run(
+            jq_command,
+            input=json_input,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            print(f"  TSV conversion: FAILED - jq returned error code {result.returncode}")
+            print(f"  TSV conversion error: {result.stderr}")
+            return {
+                "error": f"jq conversion failed: {result.stderr}",
+                "hint": "Ensure jq is installed on your system"
+            }
+        
+        tsv_lines = result.stdout.count('\n')
+        print(f"  TSV conversion: SUCCESS - Converted to TSV with {tsv_lines} lines (including header)")
+        return {"tsv": result.stdout}
+        
+    except FileNotFoundError:
+        print("  TSV conversion: FAILED - jq command not found")
+        return {
+            "error": "jq command not found",
+            "hint": "Please install jq to use TSV format. See https://jqlang.github.io/jq/download/"
+        }
+    except subprocess.TimeoutExpired:
+        print("  TSV conversion: FAILED - Conversion timed out after 30 seconds")
+        return {
+            "error": "TSV conversion timed out (>30s)",
+            "hint": "Try reducing the batch size"
+        }
+    except Exception as e:
+        print(f"  TSV conversion: FAILED - Unexpected error: {str(e)}")
+        return {
+            "error": f"TSV conversion error: {str(e)}"
+        }
 
 
 def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
@@ -49,6 +123,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                                cursorId: Optional[str] = None,
                                countOnly: bool = False,
                                batchSize: Optional[int] = None,
+                               format: Optional[str] = "tsv",
                                token: Optional[str] = None) -> Dict[str, Any]:
         """
         Query BV-BRC data with structured filters; Solr syntax is handled for you.
@@ -78,31 +153,31 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             countOnly: If True, only return the total count without data.
             batchSize: Number of rows per page (defaults to 1000, range: 1-10000).
                       Use smaller values for faster initial response, larger for fewer round trips.
+            format: Output format - "tsv" (default) or "json". 
+                   TSV format requires jq to be installed on the system.
+                   When format="tsv", results are converted to tab-separated values with headers.
             token: Authentication token (optional, auto-detected if token_provider is configured).
             
         Returns:
             Dict with structure:
             - If countOnly=True: {"numFound": <int>, "source": "bvbrc-mcp-data"}
-            - Otherwise: {
-                "results": [...],           # Array of result objects
+            - returns: {
+                "results": [...] | "tsv": <tsv_string>,           # Array of result objects or TSV string
                 "count": <int>,             # Number of results in this page
                 "numFound": <int>,          # Total results matching query
                 "nextCursorId": <str|null>, # Pass this to get next page (null = no more pages)
                 "source": "bvbrc-mcp-data"
               }
-              
-        Example pagination pattern:
-            cursor = "*"
-            all_results = []
-            while cursor:
-                response = bvbrc_query_collection(collection="genome", cursorId=cursor, batchSize=5000)
-                all_results.extend(response["results"])
-                cursor = response.get("nextCursorId")
-                if not cursor:  # or compare cursor == previous cursor
-                    break
         """
+        # Validate format parameter
+        if format not in ["json", "tsv"]:
+            return {
+                "error": f"Invalid format: {format}. Must be 'json' or 'tsv'.",
+                "source": "bvbrc-mcp-data"
+            }
+        
         mode_str = "count-only" if countOnly else "paginated-query"
-        print(f"Querying collection: {collection}, mode: {mode_str}, cursorId: {cursorId or '*'}")
+        print(f"Querying collection: {collection}, mode: {mode_str}, format: {format}, cursorId: {cursorId or '*'}")
         
         options: Dict[str, Any] = {}
         select_fields = normalize_select(select)
@@ -169,6 +244,30 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 print(f"Query returned {observed_count} results for this page.")
                 if result.get("nextCursorId"):
                     print(f"  More results available. Use nextCursorId to fetch next page.")
+            
+            # Convert to TSV if requested
+            if format == "tsv" and not countOnly:
+                print(f"  Converting {observed_count} results from JSON to TSV format...")
+                conversion_result = convert_json_to_tsv(result.get("results", []))
+                
+                # Check if conversion was successful
+                if "error" in conversion_result:
+                    # Return error with original JSON as fallback
+                    print(f"  TSV conversion failed, falling back to JSON format")
+                    return {
+                        "error": conversion_result["error"],
+                        "hint": conversion_result.get("hint", ""),
+                        "results": result.get("results", []),  # Fallback to JSON
+                        "count": result.get("count"),
+                        "numFound": result.get("numFound"),
+                        "nextCursorId": result.get("nextCursorId"),
+                        "source": "bvbrc-mcp-data"
+                    }
+                
+                # Replace results with TSV string
+                result["tsv"] = conversion_result["tsv"]
+                del result["results"]  # Remove JSON results
+                print(f"  TSV conversion complete. Results replaced with TSV string.")
             
             # Add 'source' field to the top-level response
             result['source'] = 'bvbrc-mcp-data'
