@@ -244,8 +244,10 @@ async def generate_workflow_with_services(
     api: JsonRpcCaller,
     token: str,
     user_id: str,
-    llm_client: LLMClient
-) -> str:
+    llm_client: LLMClient,
+    validation_error: Optional[str] = None,
+    previous_workflow: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     STEP 2: Generate workflow manifest with detailed parameters for selected services.
     
@@ -258,7 +260,7 @@ async def generate_workflow_with_services(
         llm_client: LLM client instance
         
     Returns:
-        JSON string containing the workflow manifest
+        Dict containing workflow_json and prompt_payload, or error details
     """
     try:
         print(f"STEP 2: Generating workflow for services: {selected_services}", file=sys.stderr)
@@ -268,6 +270,7 @@ async def generate_workflow_with_services(
         
         # Load configuration files
         output_patterns = load_config_file('service_outputs.json')
+        required_params_config = load_config_file('service_required_params.json')
         
         # Add job_output_path field to every service output
         for service_name, service_outputs in output_patterns.items():
@@ -286,9 +289,17 @@ async def generate_workflow_with_services(
         
         # Get output patterns for ONLY the selected services
         selected_output_patterns = {}
+        friendly_to_api = catalog.get('mapping', {}).get('friendly_to_api', {})
         for service_name in selected_services:
-            if service_name in output_patterns:
-                selected_output_patterns[service_name] = output_patterns[service_name]
+            api_name = friendly_to_api.get(service_name, service_name)
+            if api_name in output_patterns:
+                selected_output_patterns[service_name] = output_patterns[api_name]
+
+        # Get required parameter rules for ONLY the selected services
+        selected_required_params = {}
+        for service_name in selected_services:
+            if service_name in required_params_config:
+                selected_required_params[service_name] = required_params_config[service_name]
         
         # Load parameter generation system prompt
         system_prompt = load_prompt_file('workflow_parameter_generation.txt')
@@ -303,10 +314,36 @@ SELECTED SERVICES: {json.dumps(selected_services)}
 DETAILED SERVICE SPECIFICATIONS (read these carefully for exact parameter names and requirements):
 {json.dumps(selected_service_specs, indent=2)}
 
+REQUIRED PARAMETER RULES (source of truth; do not omit any required params):
+{json.dumps(selected_required_params, indent=2)}
+
 SERVICE OUTPUT PATTERNS for selected services:
 {json.dumps(selected_output_patterns, indent=2)}
 
 Generate a complete workflow manifest with ALL required parameters for each service. Return ONLY the JSON manifest."""
+
+        if validation_error:
+            user_prompt += f"""
+
+VALIDATION ERRORS FROM WORKFLOW ENGINE (fix these):
+{validation_error}
+"""
+        if previous_workflow:
+            user_prompt += f"""
+
+PREVIOUS WORKFLOW (fix only what is needed to address validation errors):
+{json.dumps(previous_workflow, indent=2)}
+"""
+
+        prompt_payload = {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt
+        }
+        if os.environ.get("BVBRC_LOG_LLM_PROMPTS") == "1":
+            print(
+                f"LLM parameter generation prompt payload:\n{json.dumps(prompt_payload, indent=2)}",
+                file=sys.stderr
+            )
         
         # Make the LLM call
         print("Generating workflow parameters...", file=sys.stderr)
@@ -350,23 +387,28 @@ Generate a complete workflow manifest with ALL required parameters for each serv
                 "workspace_output_folder": f"/{user_id}/home/WorkspaceOutputFolder"
             }
         
-        return json.dumps(workflow_manifest, indent=2)
+        return {
+            "workflow_json": workflow_manifest,
+            "prompt_payload": prompt_payload
+        }
         
     except json.JSONDecodeError as e:
         print(f"Failed to parse workflow as JSON: {e}", file=sys.stderr)
-        return json.dumps({
+        return {
             "error": f"Failed to parse workflow: {str(e)}",
             "raw_response": response,
-            "hint": "The LLM response was not valid JSON"
-        }, indent=2)
+            "hint": "The LLM response was not valid JSON",
+            "prompt_payload": prompt_payload if 'prompt_payload' in locals() else None
+        }
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"Error in generate_workflow_with_services: {error_trace}", file=sys.stderr)
-        return json.dumps({
+        return {
             "error": str(e),
-            "traceback": error_trace
-        }, indent=2)
+            "traceback": error_trace,
+            "prompt_payload": prompt_payload if 'prompt_payload' in locals() else None
+        }
 
 
 async def generate_workflow_manifest_internal(
@@ -374,8 +416,10 @@ async def generate_workflow_manifest_internal(
     api: JsonRpcCaller,
     token: str,
     user_id: str,
-    llm_client: LLMClient
-) -> str:
+    llm_client: LLMClient,
+    validation_error: Optional[str] = None,
+    previous_workflow: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     Generate a workflow manifest using TWO-STEP LLM-based planning.
     
@@ -390,7 +434,7 @@ async def generate_workflow_manifest_internal(
         llm_client: LLM client instance
         
     Returns:
-        JSON string containing the workflow manifest
+        Dict containing workflow_json and prompt_payload, or error details
     """
     try:
         # STEP 1: Select services
@@ -418,25 +462,27 @@ async def generate_workflow_manifest_internal(
             }, indent=2)
         
         # STEP 2: Generate workflow with detailed parameters
-        workflow_json_str = await generate_workflow_with_services(
+        workflow_result = await generate_workflow_with_services(
             user_query=user_query,
             selected_services=selected_services,
             api=api,
             token=token,
             user_id=user_id,
-            llm_client=llm_client
+            llm_client=llm_client,
+            validation_error=validation_error,
+            previous_workflow=previous_workflow
         )
         
-        return workflow_json_str
+        return workflow_result
         
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"Error in generate_workflow_manifest_internal: {error_trace}", file=sys.stderr)
-        return json.dumps({
+        return {
             "error": str(e),
             "traceback": error_trace
-        }, indent=2)
+        }
 
 
 def validate_workflow_structure(workflow_json: Dict[str, Any]) -> tuple[bool, Optional[str]]:
@@ -517,157 +563,184 @@ async def create_and_execute_workflow_internal(
     
     # Stage 1: Generate workflow
     print("Stage 1: Generating workflow manifest...", file=sys.stderr)
-    try:
-        workflow_json_str = await generate_workflow_manifest_internal(
-            user_query=user_query,
-            api=api,
-            token=token,
-            user_id=user_id,
-            llm_client=llm_client
-        )
-        
-        # Parse the JSON string
-        workflow_json = json.loads(workflow_json_str)
-        
-        # Check if generation returned an error
-        if "error" in workflow_json:
+    workflow_json = None
+    prompt_payload = None
+    previous_workflow = None
+    validation_error = None
+    attempt = 0
+    max_attempts = 2
+    while attempt < max_attempts:
+        try:
+            workflow_result = await generate_workflow_manifest_internal(
+                user_query=user_query,
+                api=api,
+                token=token,
+                user_id=user_id,
+                llm_client=llm_client,
+                validation_error=validation_error,
+                previous_workflow=previous_workflow
+            )
+            
+            # Check if generation returned an error
+            if "error" in workflow_result:
+                return {
+                    "error": workflow_result.get("error"),
+                    "errorType": "GENERATION_FAILED",
+                    "stage": "generation",
+                    "hint": workflow_result.get("hint", "Failed to generate workflow"),
+                    "prompt_payload": workflow_result.get("prompt_payload"),
+                    "source": "bvbrc-service"
+                }
+            
+            workflow_json = workflow_result.get("workflow_json")
+            prompt_payload = workflow_result.get("prompt_payload")
+            
+            if not workflow_json:
+                return {
+                    "error": "Failed to generate workflow JSON",
+                    "errorType": "GENERATION_FAILED",
+                    "stage": "generation",
+                    "prompt_payload": prompt_payload,
+                    "source": "bvbrc-service"
+                }
+            
+            print("Stage 1: Workflow generated successfully", file=sys.stderr)
+            
+        except Exception as e:
+            import traceback
             return {
-                "error": workflow_json.get("error"),
+                "error": str(e),
                 "errorType": "GENERATION_FAILED",
                 "stage": "generation",
-                "hint": workflow_json.get("hint", "Failed to generate workflow"),
+                "traceback": traceback.format_exc(),
+                "source": "bvbrc-service"
+            }
+    
+        # Stage 2: Basic validation (complex validation happens in workflow engine)
+        print("Stage 2: Validating basic workflow structure...", file=sys.stderr)
+        is_valid, error_message = validate_workflow_structure(workflow_json)
+        
+        if not is_valid:
+            return {
+                "error": error_message,
+                "errorType": "VALIDATION_FAILED",
+                "stage": "validation",
+                "partial_workflow": workflow_json,
+                "hint": "The generated workflow has basic structural issues",
+                "prompt_payload": prompt_payload,
                 "source": "bvbrc-service"
             }
         
-        print("Stage 1: Workflow generated successfully", file=sys.stderr)
+        print("Stage 2: Basic validation passed (detailed validation will occur in workflow engine)", file=sys.stderr)
         
-    except json.JSONDecodeError as e:
-        return {
-            "error": f"Failed to parse generated workflow: {str(e)}",
-            "errorType": "GENERATION_FAILED",
-            "stage": "generation",
-            "source": "bvbrc-service"
-        }
-    except Exception as e:
-        import traceback
-        return {
-            "error": str(e),
-            "errorType": "GENERATION_FAILED",
-            "stage": "generation",
-            "traceback": traceback.format_exc(),
-            "source": "bvbrc-service"
-        }
-    
-    # Stage 2: Basic validation (complex validation happens in workflow engine)
-    print("Stage 2: Validating basic workflow structure...", file=sys.stderr)
-    is_valid, error_message = validate_workflow_structure(workflow_json)
-    
-    if not is_valid:
-        return {
-            "error": error_message,
-            "errorType": "VALIDATION_FAILED",
-            "stage": "validation",
-            "partial_workflow": workflow_json,
-            "hint": "The generated workflow has basic structural issues",
-            "source": "bvbrc-service"
-        }
-    
-    print("Stage 2: Basic validation passed (detailed validation will occur in workflow engine)", file=sys.stderr)
-    
-    # If auto_execute is False, return the validated workflow JSON only
-    if not auto_execute:
-        print("auto_execute=False, returning workflow JSON only", file=sys.stderr)
-        return {
-            "workflow_json": workflow_json,
-            "message": "Workflow manifest generated and validated (not submitted for execution)",
-            "source": "bvbrc-service"
-        }
-    
-    # Check if workflow engine is enabled
-    if not workflow_engine_config or not workflow_engine_config.get('enabled', False):
-        print("Workflow engine is disabled, returning workflow JSON only", file=sys.stderr)
-        return {
-            "workflow_json": workflow_json,
-            "warning": "Workflow engine is disabled in configuration",
-            "message": "Workflow generated but not submitted",
-            "hint": "Enable workflow_engine in config.json to submit workflows for execution",
-            "source": "bvbrc-service"
-        }
-    
-    # Stage 3: Submit to workflow engine
-    print("Stage 3: Submitting workflow to execution engine...", file=sys.stderr)
-    try:
-        engine_url = workflow_engine_config.get('api_url', 'http://localhost:8000/api/v1')
-        engine_timeout = workflow_engine_config.get('timeout', 30)
-        
-        client = WorkflowEngineClient(base_url=engine_url, timeout=engine_timeout)
-        
-        # First check if engine is healthy
-        is_healthy = await client.health_check()
-        if not is_healthy:
-            print("Workflow engine health check failed", file=sys.stderr)
+        # If auto_execute is False, return the validated workflow JSON only
+        if not auto_execute:
+            print("auto_execute=False, returning workflow JSON only", file=sys.stderr)
             return {
                 "workflow_json": workflow_json,
-                "warning": "Workflow engine is not available",
+                "message": "Workflow manifest generated and validated (not submitted for execution)",
+                "prompt_payload": prompt_payload,
+                "source": "bvbrc-service"
+            }
+    
+        # Check if workflow engine is enabled
+        if not workflow_engine_config or not workflow_engine_config.get('enabled', False):
+            print("Workflow engine is disabled, returning workflow JSON only", file=sys.stderr)
+            return {
+                "workflow_json": workflow_json,
+                "warning": "Workflow engine is disabled in configuration",
                 "message": "Workflow generated but not submitted",
-                "hint": f"Ensure workflow engine is running at {engine_url}",
-                "submission_url": f"{engine_url}/workflows/submit",
+                "hint": "Enable workflow_engine in config.json to submit workflows for execution",
                 "source": "bvbrc-service"
             }
         
-        # Clean the workflow before submission - remove any fields that workflow engine assigns
-        # The workflow engine assigns workflow_id and step_ids, so we must remove them if present
-        workflow_for_submission = workflow_json.copy()
-        workflow_for_submission.pop('workflow_id', None)  # Remove if LLM added it
-        workflow_for_submission.pop('status', None)  # Remove if present
-        workflow_for_submission.pop('created_at', None)  # Remove if present
-        workflow_for_submission.pop('updated_at', None)  # Remove if present
-        
-        # Clean steps - remove execution metadata
-        if 'steps' in workflow_for_submission:
-            for step in workflow_for_submission['steps']:
-                step.pop('step_id', None)  # Workflow engine assigns this
-                step.pop('status', None)  # Execution metadata
-                step.pop('task_id', None)  # Execution metadata
-        
-        # Submit the workflow
-        result = await client.submit_workflow(workflow_for_submission, token)
-        
-        print(f"Stage 3: Workflow submitted successfully: {result.get('workflow_id')}", file=sys.stderr)
-        
-        # Return success response
-        return {
-            "workflow_id": result.get('workflow_id'),
-            "status": result.get('status', 'pending'),
-            "workflow_json": workflow_json,
-            "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "message": result.get('message', 'Workflow created and submitted for execution'),
-            "status_url": f"{engine_url}/workflows/{result.get('workflow_id')}/status",
-            "source": "bvbrc-service"
-        }
-        
-    except WorkflowEngineError as e:
-        print(f"Workflow engine error: {e}", file=sys.stderr)
-        return {
-            "error": str(e),
-            "errorType": e.error_type,
-            "stage": "submission",
-            "workflow_json": workflow_json,
-            "hint": "Workflow was generated and validated but could not be submitted. You can submit it manually.",
-            "submission_url": f"{workflow_engine_config.get('api_url', 'http://localhost:8000/api/v1')}/workflows/submit",
-            "source": "bvbrc-service"
-        }
-    except Exception as e:
-        import traceback
-        print(f"Unexpected error during submission: {e}", file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
-        return {
-            "error": str(e),
-            "errorType": "SUBMISSION_FAILED",
-            "stage": "submission",
-            "workflow_json": workflow_json,
-            "hint": "Workflow was generated and validated but submission failed unexpectedly",
-            "traceback": traceback.format_exc(),
-            "source": "bvbrc-service"
-        }
+        # Stage 3: Submit to workflow engine
+        print("Stage 3: Submitting workflow to execution engine...", file=sys.stderr)
+        try:
+            engine_url = workflow_engine_config.get('api_url', 'http://localhost:8000/api/v1')
+            engine_timeout = workflow_engine_config.get('timeout', 30)
+            
+            client = WorkflowEngineClient(base_url=engine_url, timeout=engine_timeout)
+            
+            # First check if engine is healthy
+            is_healthy = await client.health_check()
+            if not is_healthy:
+                print("Workflow engine health check failed", file=sys.stderr)
+                return {
+                    "workflow_json": workflow_json,
+                    "warning": "Workflow engine is not available",
+                    "message": "Workflow generated but not submitted",
+                    "hint": f"Ensure workflow engine is running at {engine_url}",
+                    "submission_url": f"{engine_url}/workflows/submit",
+                    "prompt_payload": prompt_payload,
+                    "source": "bvbrc-service"
+                }
+            
+            # Clean the workflow before submission - remove any fields that workflow engine assigns
+            # The workflow engine assigns workflow_id and step_ids, so we must remove them if present
+            workflow_for_submission = workflow_json.copy()
+            workflow_for_submission.pop('workflow_id', None)  # Remove if LLM added it
+            workflow_for_submission.pop('status', None)  # Remove if present
+            workflow_for_submission.pop('created_at', None)  # Remove if present
+            workflow_for_submission.pop('updated_at', None)  # Remove if present
+            
+            # Clean steps - remove execution metadata
+            if 'steps' in workflow_for_submission:
+                for step in workflow_for_submission['steps']:
+                    step.pop('step_id', None)  # Workflow engine assigns this
+                    step.pop('status', None)  # Execution metadata
+                    step.pop('task_id', None)  # Execution metadata
+            
+            # Submit the workflow
+            result = await client.submit_workflow(workflow_for_submission, token)
+            
+            print(f"Stage 3: Workflow submitted successfully: {result.get('workflow_id')}", file=sys.stderr)
+            
+            # Return success response
+            return {
+                "workflow_id": result.get('workflow_id'),
+                "status": result.get('status', 'pending'),
+                "workflow_json": workflow_json,
+                "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "message": result.get('message', 'Workflow created and submitted for execution'),
+                "status_url": f"{engine_url}/workflows/{result.get('workflow_id')}/status",
+                "prompt_payload": prompt_payload,
+                "source": "bvbrc-service"
+            }
+            
+        except WorkflowEngineError as e:
+            print(f"Workflow engine error: {e}", file=sys.stderr)
+            if e.error_type == "VALIDATION_FAILED" and attempt < max_attempts - 1:
+                validation_error = str(e)
+                previous_workflow = workflow_json
+                attempt += 1
+                print(
+                    f"Validation failed in workflow engine; regenerating workflow (attempt {attempt + 1}/{max_attempts})",
+                    file=sys.stderr
+                )
+                continue
+            return {
+                "error": str(e),
+                "errorType": e.error_type,
+                "stage": "submission",
+                "workflow_json": workflow_json,
+                "prompt_payload": prompt_payload,
+                "hint": "Workflow was generated and validated but could not be submitted. You can submit it manually.",
+                "submission_url": f"{workflow_engine_config.get('api_url', 'http://localhost:8000/api/v1')}/workflows/submit",
+                "source": "bvbrc-service"
+            }
+        except Exception as e:
+            import traceback
+            print(f"Unexpected error during submission: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            return {
+                "error": str(e),
+                "errorType": "SUBMISSION_FAILED",
+                "stage": "submission",
+                "workflow_json": workflow_json,
+                "prompt_payload": prompt_payload,
+                "hint": "Workflow was generated and validated but submission failed unexpectedly",
+                "traceback": traceback.format_exc(),
+                "source": "bvbrc-service"
+            }
 

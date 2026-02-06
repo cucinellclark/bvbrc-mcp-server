@@ -1,0 +1,57 @@
+{
+  "taxonomic_classification": {
+    "required_params": [
+      "host_genome",
+      "analysis_type",
+      "database",
+      "save_classified_sequences",
+      "save_unclassified_sequences",
+      "confidence_interval",
+      "output_path",
+      "output_file"
+    ],
+    "defaults": {
+      "host_genome": "no_host",
+      "analysis_type": "microbiome",
+      "database": "bvbrc",
+      "save_classified_sequences": "false",
+      "save_unclassified_sequences": "false",
+      "confidence_interval": "0.1"
+    },
+    "enum_params": {
+      "host_genome": [
+        "homo_sapiens",
+        "mus_musculus",
+        "rattus_norvegicus",
+        "caenorhabditis_elegans",
+        "drosophila_melanogaster_strain",
+        "danio_rerio_strain_tuebingen",
+        "gallus_gallus",
+        "macaca_mulatta",
+        "mustela_putorius_furo",
+        "sus_scrofa",
+        "no_host"
+      ],
+      "analysis_type": [
+        "pathogen",
+        "microbiome",
+        "16S"
+      ],
+      "database": [
+        "bvbrc",
+        "Greengenes",
+        "SILVA",
+        "standard"
+      ]
+    },
+    "required_one_of": [
+      "paired_end_libs",
+      "single_end_libs",
+      "srr_libs"
+    ],
+    "required_outputs": [
+      "classification_report"
+    ]
+  }
+}
+

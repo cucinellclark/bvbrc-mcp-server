@@ -73,37 +73,33 @@ Return a JSON object with this EXACT structure:
 7. **depends_on**: Array of step_name values (use step_name, not step_id). Empty array `[]` if no dependencies.
 8. **outputs**: Use the exact output patterns provided in the SERVICE OUTPUT PATTERNS section
 
-## Example Workflow
+## Example Workflow Structure
 
 ```json
 {
   "workflow_id": "<scheduler_generated_id>",
-  "workflow_name": "ecoli-comprehensive-analysis",
+  "workflow_name": "example-workflow",
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
     "workspace_output_folder": "/USERNAME/home/WorkspaceOutputFolder"
   },
   "workflow_outputs": [
-    "${steps.analyze_genome.outputs.genome_file}"
+    "${steps.step_name.outputs.output_name}"
   ],
   "steps": [
     {
       "step_id": "<scheduler_generated_id>",
-      "step_name": "analyze_genome",
-      "app": "ComprehensiveGenomeAnalysis",
+      "step_name": "example_step",
+      "app": "APIServiceName",
       "params": {
-        "input_type": "reads",
-        "srr_ids": ["SRR36696737"],
-        "scientific_name": "Escherichia coli",
-        "domain": "Bacteria",
-        "recipe": "auto",
-        "output_path": "${workspace_output_folder}/EcoliAnalysis",
-        "output_file": "ecoli_analysis"
+        "required_param1": "value1",
+        "required_param2": "value2",
+        "output_path": "${workspace_output_folder}/ProjectName",
+        "output_file": "output_filename"
       },
       "outputs": {
-        "genome_file": "${params.output_path}/${params.output_file}/annotated.genome",
-        "genome_report": "${params.output_path}/${params.output_file}/FullGenomeReport.html",
+        "output_name": "${params.output_path}/.${params.output_file}/output_file.ext",
         "job_result_path": "${params.output_path}/.${params.output_file}"
       },
       "depends_on": []
@@ -112,22 +108,53 @@ Return a JSON object with this EXACT structure:
 }
 ```
 
+**Note**: This is a generic structure example. For service-specific complete workflow examples, refer to the detailed service specifications provided in the user prompt.
+
 ## Instructions
 
-1. Read the user's original query to understand their specific data/requirements
-2. For EACH service you're asked to include:
-   - Read the complete service specification provided
+1. **FIRST**: Check if the service specification includes a "Complete Workflow Example" section - if it does:
+   - USE IT AS YOUR EXACT TEMPLATE
+   - Copy ALL parameters from the example (especially required ones)
+   - Do NOT omit any parameters shown in the example
+   - Match the output structure exactly (output names, paths, etc.)
+
+2. Read the user's original query to understand their specific data/requirements
+
+3. For EACH service you're asked to include:
+   - Read the complete service specification provided (including any workflow examples and checklists)
+   - If there's a "REQUIRED PARAMETERS CHECKLIST", verify you've included EVERY item
    - Identify ALL parameters marked as "(required)"
-   - Include every required parameter with appropriate values
-3. Use the output patterns provided to define step outputs correctly
-4. Set up dependencies between steps (depends_on) based on data flow
-5. Use variable substitution to pass outputs between steps
-6. Return ONLY the JSON workflow manifest (no markdown, no additional text)
+   - Include every required parameter with appropriate values (use defaults if specified)
+   - If REQUIRED PARAMETER RULES are provided, treat them as source of truth:
+     - Use any defaults listed there when the user did not specify a value
+     - Only use values listed in enum_params for those fields
+   - Pay special attention to parameter formats (arrays vs strings, objects vs primitives)
+
+4. Use the output patterns provided to define step outputs correctly
+
+5. Set up dependencies between steps (depends_on) based on data flow
+
+6. Use variable substitution to pass outputs between steps
+
+7. Return ONLY the JSON workflow manifest (no markdown, no additional text)
+
+8. **CRITICAL**: When you see arrays in examples (like srr_libs), they must be actual JSON arrays, NOT strings!
+
+9. **BEFORE SUBMITTING**: Verify you've included ALL required parameters from the example, checklist, and REQUIRED PARAMETER RULES
 
 ## Common Pitfalls to Avoid
 
 ❌ Using generic parameter names like "reads" or "sequences"
-✅ Use exact names: "srr_ids", "paired_end_libs", "input_fasta_data"
+✅ Use exact names from service specifications: "srr_ids", "srr_libs", "paired_end_libs", "input_fasta_data"
+
+❌ Using wrong parameter name for SRA data
+✅ Check the service specification: Some services use "srr_ids" (array of strings), others use "srr_libs" (array of objects with metadata). For taxonomic_classification, use "srr_libs" NOT "srr_ids" or "sra_libs".
+
+❌ Converting arrays to strings (e.g., `"srr_libs": "[{...}]"` as a string)
+✅ Arrays must be actual JSON arrays: `"srr_libs": [{...}]` NOT `"srr_libs": "[{...}]"`
+
+❌ Using "srr_id" field name in srr_libs objects
+✅ Use "srr_accession" NOT "srr_id". Each srr_libs object needs: "title", "srr_accession", "sample_id"
 
 ❌ Missing required parameters like "input_type" or "scientific_name"
 ✅ Check "(required)" markers and include ALL of them
