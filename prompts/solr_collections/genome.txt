@@ -107,7 +107,7 @@
     plfam_cds_ratio (number)
     public (boolean)
     publication (string)
-    reference_genome (string)
+    reference_genome (string) : (Reference or Representative)
     refseq_accessions (case insensitive string)
     refseq_cds (integer)
     refseq_project_id (string)

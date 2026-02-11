@@ -15,7 +15,7 @@
     genome_name (case insensitive string)
     id (string)
     length (integer)
-    patric_id (string)
+    patric_id (string) - Note: follows pattern fig|XXXX.X.peg.X
     product (case insensitive string)
     publication (array of strings)
     refseq_locus_tag (string)

@@ -7,13 +7,10 @@ This module contains MCP tools for querying MVP (Minimum Viable Product) data fr
 
 import json
 import subprocess
+import os
 from typing import Optional, Dict, Any, List
 
 from fastmcp import FastMCP
-
-# Global variables to store configuration
-_base_url = None
-_token_provider = None
 
 from functions.data_functions import (
     query_direct,
@@ -24,8 +21,33 @@ from functions.data_functions import (
     normalize_sort,
     build_filter,
     get_collection_fields,
-    validate_filter_fields
+    validate_filter_fields,
+    create_query_plan_internal,
+    CURSOR_BATCH_SIZE
 )
+from common.llm_client import create_llm_client_from_config
+
+# Global variables to store configuration
+_base_url = None
+_token_provider = None
+_llm_client = None
+
+
+def _get_llm_client():
+    """Create and cache the internal LLM client used for query planning."""
+    global _llm_client
+    if _llm_client is not None:
+        return _llm_client
+
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config",
+        "config.json"
+    )
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    _llm_client = create_llm_client_from_config(config)
+    return _llm_client
 
 
 def convert_json_to_tsv(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -123,10 +145,15 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                                cursorId: Optional[str] = None,
                                countOnly: bool = False,
                                batchSize: Optional[int] = None,
+                               num_results: Optional[int] = None,
                                format: Optional[str] = "tsv",
                                token: Optional[str] = None) -> Dict[str, Any]:
         """
         Query BV-BRC data with structured filters; Solr syntax is handled for you.
+        
+        ⚠️ WORKFLOW: For natural language queries, ALWAYS call bvbrc_plan_query_collection 
+        FIRST to generate parameters. ONLY call this tool directly when you already have 
+        structured parameters from the planner or explicitly provided by the user
         
         Returns a single page of results with cursor for pagination. For large result sets,
         make multiple calls using the returned nextCursorId until it becomes null.
@@ -153,6 +180,9 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             countOnly: If True, only return the total count without data.
             batchSize: Number of rows per page (defaults to 1000, range: 1-10000).
                       Use smaller values for faster initial response, larger for fewer round trips.
+            num_results: Optional total limit on number of results to return across all pages.
+                        If provided, the tool will fetch pages until this limit is reached (or results are exhausted).
+                        Final page will be truncated if needed. If not provided, returns single page only.
             format: Output format - "tsv" (default) or "json". 
                    TSV format requires jq to be installed on the system.
                    When format="tsv", results are converted to tab-separated values with headers.
@@ -218,6 +248,20 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                     "source": "bvbrc-mcp-data"
                 }
 
+        # Validate num_results if provided
+        if num_results is not None:
+            if num_results < 1:
+                return {
+                    "error": f"Invalid num_results: {num_results}. Must be >= 1.",
+                    "source": "bvbrc-mcp-data"
+                }
+            # If num_results is provided, we'll fetch multiple pages
+            # Adjust batchSize to not exceed num_results if needed
+            if batchSize is None:
+                batchSize = min(CURSOR_BATCH_SIZE, num_results)
+            elif batchSize > num_results:
+                batchSize = num_results
+
         # Authentication headers
         headers: Optional[Dict[str, str]] = None
         if _token_provider:
@@ -227,28 +271,88 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         elif token:
             headers = {"Authorization": token}
         
+        # Collection-specific headers
+        if collection == "genome_sequence":
+            if headers is None:
+                headers = {}
+            headers["http_accept"] = "application/dna+fasta"
+        
         print(f"Filter is {filter_str}")
         
         try:
-            result = await query_direct(
-                collection, filter_str, options, _base_url, 
-                headers=headers, cursorId=cursorId, countOnly=countOnly,
-                batch_size=batchSize
-            )
+            # If num_results is provided and we're not in countOnly mode, fetch pages until limit
+            if num_results is not None and not countOnly and (cursorId is None or cursorId == "*"):
+                # Fetch multiple pages until we reach num_results
+                all_results = []
+                current_cursor = cursorId or "*"
+                total_fetched = 0
+                last_page_result = None
+                
+                while total_fetched < num_results:
+                    # Calculate how many we need from this page
+                    remaining = num_results - total_fetched
+                    page_batch_size = min(batchSize or CURSOR_BATCH_SIZE, remaining)
+                    
+                    page_result = await query_direct(
+                        collection, filter_str, options, _base_url,
+                        headers=headers, cursorId=current_cursor, countOnly=False,
+                        batch_size=page_batch_size
+                    )
+                    last_page_result = page_result
+                    
+                    page_results = page_result.get("results", [])
+                    if not page_results:
+                        # No more results available
+                        break
+                    
+                    # Add results up to the limit
+                    needed = num_results - total_fetched
+                    all_results.extend(page_results[:needed])
+                    total_fetched += len(page_results[:needed])
+                    
+                    # Check if we've reached the limit or there are no more pages
+                    next_cursor = page_result.get("nextCursorId")
+                    if total_fetched >= num_results or not next_cursor:
+                        break
+                    
+                    current_cursor = next_cursor
+                
+                # Build final result
+                num_found = last_page_result.get("numFound", len(all_results)) if last_page_result else len(all_results)
+                next_cursor_id = last_page_result.get("nextCursorId") if (last_page_result and total_fetched < num_results) else None
+                result = {
+                    "results": all_results,
+                    "count": len(all_results),
+                    "numFound": num_found,
+                    "nextCursorId": next_cursor_id,
+                    "limit": num_results,
+                    "limitReached": total_fetched >= num_results
+                }
+            else:
+                # Single page query (original behavior)
+                result = await query_direct(
+                    collection, filter_str, options, _base_url, 
+                    headers=headers, cursorId=cursorId, countOnly=countOnly,
+                    batch_size=batchSize
+                )
             
             # Prefer count for the returned page; fall back to numFound if needed
             observed_count = result.get("count", result.get("numFound"))
             if countOnly:
                 print(f"Query found {observed_count} total results.")
             else:
-                print(f"Query returned {observed_count} results for this page.")
+                if num_results is not None:
+                    print(f"Query returned {observed_count} results (limit: {num_results}).")
+                else:
+                    print(f"Query returned {observed_count} results for this page.")
                 if result.get("nextCursorId"):
                     print(f"  More results available. Use nextCursorId to fetch next page.")
             
             # Convert to TSV if requested
             if format == "tsv" and not countOnly:
-                print(f"  Converting {observed_count} results from JSON to TSV format...")
-                conversion_result = convert_json_to_tsv(result.get("results", []))
+                results_to_convert = result.get("results", [])
+                print(f"  Converting {len(results_to_convert)} results from JSON to TSV format...")
+                conversion_result = convert_json_to_tsv(results_to_convert)
                 
                 # Check if conversion was successful
                 if "error" in conversion_result:
@@ -314,3 +418,77 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         """
         print("Fetching available collections.")
         return list_solr_collections()
+
+    @mcp.tool(annotations={"readOnlyHint": True})
+    async def bvbrc_plan_query_collection(user_query: str) -> Dict[str, Any]:
+        """
+        Plan a single-collection query from natural language using a two-step internal LLM procedure:
+        1) select collection
+        2) generate validated query arguments
+
+        ⚠️ ALWAYS call this tool FIRST for natural language queries (e.g., "find E. coli genomes", 
+        "show resistant strains"). NEVER manually construct query parameters from natural language.
+        
+        The returned plan contains all parameters needed to call bvbrc_query_collection.
+
+        Use the returned plan as arguments to bvbrc_query_collection.
+
+        Args:
+            user_query: Natural language description of the desired BV-BRC data query.
+                This planner tool accepts only this parameter. Do not pass query args
+                such as format/select/sort/filters here; those belong in the returned
+                plan for bvbrc_query_collection.
+
+        Returns:
+            Dict with:
+            - plan: Validated query arguments compatible with bvbrc_query_collection
+            - selection: Collection selection details from planner step 1
+            - nextToolCall: Suggested direct call to bvbrc_query_collection
+            - source: "bvbrc-mcp-data"
+            Or error details if planning fails.
+        """
+        if not user_query or not str(user_query).strip():
+            return {
+                "error": "user_query parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "hint": "Provide a natural language query to plan",
+                "source": "bvbrc-mcp-data"
+            }
+
+        try:
+            llm_client = _get_llm_client()
+            planning_result = create_query_plan_internal(user_query, llm_client)
+
+            if "error" in planning_result:
+                return {
+                    "error": planning_result.get("error"),
+                    "errorType": "PLANNING_FAILED",
+                    "selection": planning_result.get("selection"),
+                    "validationError": planning_result.get("validationError"),
+                    "rawPlan": planning_result.get("rawPlan"),
+                    "source": "bvbrc-mcp-data"
+                }
+
+            plan = planning_result.get("plan", {})
+            return {
+                "plan": plan,
+                "selection": planning_result.get("selection", {}),
+                "nextToolCall": {
+                    "tool": "bvbrc_query_collection",
+                    "arguments": plan
+                },
+                "source": "bvbrc-mcp-data"
+            }
+        except FileNotFoundError as e:
+            return {
+                "error": f"Configuration or prompt file not found: {str(e)}",
+                "errorType": "CONFIGURATION_ERROR",
+                "hint": "Ensure config/config.json and planning prompt files exist",
+                "source": "bvbrc-mcp-data"
+            }
+        except Exception as e:
+            return {
+                "error": f"Query planning failed: {str(e)}",
+                "errorType": "PLANNING_FAILED",
+                "source": "bvbrc-mcp-data"
+            }

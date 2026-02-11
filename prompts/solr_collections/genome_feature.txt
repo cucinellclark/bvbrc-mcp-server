@@ -27,7 +27,7 @@
     og_id (string)
     owner (string)
     p2_feature_id (number)
-    patric_id (string)
+    patric_id (string) - Note: follows pattern fig|XXXX.X.peg.X
     pdb_accession (array of strings)
     pgfam_id (string)
     plfam_id (string)

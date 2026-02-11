@@ -13,6 +13,7 @@ import asyncio
 from typing import Any, Dict, List, Tuple, Optional, Set
 from bvbrc_solr_api import create_client, query
 from bvbrc_solr_api.core.solr_http_client import select as solr_select
+from common.llm_client import LLMClient
 
 # Configuration constants
 CURSOR_BATCH_SIZE = 1000
@@ -23,6 +24,41 @@ MAX_RETRIES = 3
 # Base seconds for exponential backoff during retries
 RETRY_BACKOFF_BASE = 1.0
 
+
+
+def _load_prompt_file(filename: str) -> str:
+    """Load a prompt file from the prompts directory."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    prompt_path = os.path.join(current_dir, "..", "prompts", filename)
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _strip_markdown_code_fence(text: str) -> str:
+    """Remove top-level markdown code fences from an LLM response if present."""
+    response_text = text.strip()
+    if response_text.startswith("```"):
+        lines = response_text.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        response_text = "\n".join(lines).strip()
+    return response_text
+
+
+def _available_collections() -> List[str]:
+    """List available collection names based on prompt files."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    prompts_dir = os.path.join(current_dir, "..", "prompts", "solr_collections")
+    try:
+        return sorted(
+            f[:-4]
+            for f in os.listdir(prompts_dir)
+            if f.endswith(".txt")
+        )
+    except Exception:
+        # Fallback to empty list if filesystem lookup fails.
+        return []
 
 
 def create_bvbrc_client(base_url: str = None, headers: Dict[str, str] = None) -> Any:
@@ -368,6 +404,239 @@ def validate_filter_fields(expr: Any, allowed_fields: Set[str]) -> List[str]:
 
     _walk(expr)
     return sorted(invalid)
+
+
+def _sanitize_query_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize and validate planner output into query_collection-compatible args."""
+    if not isinstance(plan, dict):
+        raise ValueError("Plan must be a JSON object")
+
+    collection = str(plan.get("collection", "")).strip()
+    if not collection:
+        raise ValueError("Plan must include a non-empty 'collection'")
+
+    filters = plan.get("filters")
+
+    # Normalize select/sort using existing helpers for consistent behavior.
+    select = normalize_select(plan.get("select"))
+    sort = normalize_sort(plan.get("sort"))
+
+    count_only = bool(plan.get("countOnly", False))
+    batch_size = plan.get("batchSize")
+    if batch_size is not None:
+        if isinstance(batch_size, bool):
+            raise ValueError("batchSize must be an integer")
+        try:
+            batch_size = int(batch_size)
+        except Exception:
+            raise ValueError("batchSize must be an integer")
+        if batch_size < 1 or batch_size > 10000:
+            raise ValueError("batchSize must be between 1 and 10000")
+
+    num_results = plan.get("num_results")
+    if num_results is not None:
+        if isinstance(num_results, bool):
+            raise ValueError("num_results must be an integer")
+        try:
+            num_results = int(num_results)
+        except Exception:
+            raise ValueError("num_results must be an integer")
+        if num_results < 1:
+            raise ValueError("num_results must be >= 1")
+
+    output_format = str(plan.get("format", "tsv")).strip().lower()
+    if output_format not in ("json", "tsv"):
+        raise ValueError("format must be 'json' or 'tsv'")
+
+    # Validate fields in structured filters against the selected collection.
+    allowed_fields = set(get_collection_fields(collection))
+    invalid_fields = validate_filter_fields(filters, allowed_fields) if filters else []
+    if invalid_fields:
+        raise ValueError(
+            f"Invalid field(s) for collection '{collection}': {', '.join(invalid_fields)}"
+        )
+
+    sanitized: Dict[str, Any] = {
+        "collection": collection,
+        "filters": filters,
+        "countOnly": count_only,
+        "format": output_format,
+    }
+    if select:
+        sanitized["select"] = select
+    if sort:
+        sanitized["sort"] = sort
+    if batch_size is not None:
+        sanitized["batchSize"] = batch_size
+    if num_results is not None:
+        sanitized["num_results"] = num_results
+    return sanitized
+
+
+def select_collection_for_query(user_query: str, llm_client: LLMClient) -> Dict[str, Any]:
+    """
+    STEP 1: Select the best collection for a natural-language query.
+    Returns a JSON object containing at least 'collection'.
+    """
+    system_prompt = _load_prompt_file("data_query_collection_selection.txt")
+    user_prompt = f"""Select the best BV-BRC collection for this query.
+
+USER QUERY: {user_query}
+
+AVAILABLE COLLECTIONS:
+{list_solr_collections()}
+
+Return ONLY a JSON object with keys:
+- collection (single best collection)
+- reasoning (brief string)
+- confidence (0..1)
+- alternatives (optional list of collection names)"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    response = llm_client.chat_completion(messages)
+    response_text = _strip_markdown_code_fence(response)
+    selection = json.loads(response_text)
+
+    if not isinstance(selection, dict):
+        raise ValueError("Collection selection response must be a JSON object")
+    selected_collection = str(selection.get("collection", "")).strip()
+    if not selected_collection:
+        raise ValueError("Collection selection did not include 'collection'")
+
+    available = set(_available_collections())
+    if available and selected_collection not in available:
+        raise ValueError(
+            f"Unknown collection selected: {selected_collection}. "
+            f"Available collections: {', '.join(sorted(available))}"
+        )
+
+    return selection
+
+
+def generate_query_plan_for_collection(
+    user_query: str,
+    collection: str,
+    llm_client: LLMClient,
+    validation_error: Optional[str] = None,
+    previous_plan: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    STEP 2: Generate query arguments for bvbrc_query_collection from user query.
+    """
+    system_prompt = _load_prompt_file("data_query_parameter_generation.txt")
+    collection_parameters = lookup_parameters(collection)
+
+    user_prompt = f"""Generate query arguments for bvbrc_query_collection.
+
+USER QUERY: {user_query}
+SELECTED COLLECTION: {collection}
+
+COLLECTION FIELDS AND TYPES:
+{collection_parameters}
+
+FILTER AND QUERY RULES:
+{query_info()}
+
+Return ONLY a JSON object with:
+- collection
+- filters
+- select
+- sort
+- batchSize
+- num_results (optional integer: total limit on results across all pages)
+- countOnly
+- format
+- assumptions (optional list)
+- questions_for_user (optional list)
+
+Constraints:
+- Use only this collection: {collection}
+- No multi-step or cross-collection planning
+- Use structured filters, never raw Solr syntax
+- Keep select concise and relevant
+- If user wants a specific number of results, set num_results to that limit"""
+
+    if validation_error:
+        user_prompt += f"""
+
+VALIDATION ERROR (fix this):
+{validation_error}
+"""
+    if previous_plan:
+        user_prompt += f"""
+
+PREVIOUS PLAN (fix only what is needed):
+{json.dumps(previous_plan, indent=2)}
+"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    response = llm_client.chat_completion(messages)
+    response_text = _strip_markdown_code_fence(response)
+    raw_plan = json.loads(response_text)
+    return raw_plan
+
+
+def create_query_plan_internal(
+    user_query: str,
+    llm_client: LLMClient
+) -> Dict[str, Any]:
+    """
+    Two-step planner for data queries:
+      1) select collection
+      2) generate collection-specific query arguments
+    """
+    if not user_query or not str(user_query).strip():
+        return {"error": "user_query is required"}
+
+    selection = select_collection_for_query(user_query, llm_client)
+    collection = str(selection.get("collection", "")).strip()
+
+    attempt = 0
+    max_attempts = 2
+    validation_error: Optional[str] = None
+    previous_plan: Optional[Dict[str, Any]] = None
+
+    while attempt < max_attempts:
+        raw_plan = generate_query_plan_for_collection(
+            user_query=user_query,
+            collection=collection,
+            llm_client=llm_client,
+            validation_error=validation_error,
+            previous_plan=previous_plan
+        )
+        # Force selected collection from step 1 even if model drifts.
+        if isinstance(raw_plan, dict):
+            raw_plan["collection"] = collection
+
+        try:
+            sanitized = _sanitize_query_plan(raw_plan)
+            return {
+                "plan": sanitized,
+                "selection": selection,
+                "rawPlan": raw_plan
+            }
+        except Exception as e:
+            validation_error = str(e)
+            previous_plan = raw_plan if isinstance(raw_plan, dict) else None
+            attempt += 1
+            if attempt >= max_attempts:
+                return {
+                    "error": "Failed to build a valid query plan",
+                    "selection": selection,
+                    "validationError": validation_error,
+                    "rawPlan": raw_plan
+                }
+
+    return {
+        "error": "Failed to build query plan for an unknown reason",
+        "selection": selection
+    }
 
 
 def lookup_parameters(collection: str) -> str:
