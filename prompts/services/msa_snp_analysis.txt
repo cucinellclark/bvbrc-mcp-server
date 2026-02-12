@@ -3,7 +3,7 @@ The parameters for the MSA SNP analysis app are:
   - input_type: Input type - input_group (default: input_group)
   - fasta_files: FASTA file inputs (optional)
   - select_genomegroup: Genome group selection (optional)
-  - feature_groups: Feature group selection (optional)
+  - feature_groups: Feature group selection (optional) - **MUST be a list of workspace paths** (e.g., ["/USERNAME/home/Feature Groups/group_name1", "/USERNAME/home/Feature Groups/group_name2"])
   - feature_list: Feature list selection (optional)
   - genome_list: Genome list selection (optional)
   - aligner: Alignment program - Muscle/MAFFT/ClustalW (default: Muscle)
@@ -16,4 +16,6 @@ The parameters for the MSA SNP analysis app are:
   - output_file: Output basename (required)
 
 At least one sequence input (fasta_files, select_genomegroup, feature_groups, feature_list, genome_list, or fasta_keyboard_input) must be provided.
+
+**IMPORTANT FOR WORKFLOW PLANNING**: When using feature_groups parameter, it MUST be provided as a list of full workspace paths (e.g., ["/USERNAME/home/Feature Groups/my_feature_group"]), NOT as feature group names or IDs. These paths should reference feature groups that exist in the workspace.
 

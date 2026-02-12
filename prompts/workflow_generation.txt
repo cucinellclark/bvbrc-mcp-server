@@ -187,5 +187,17 @@ IMPORTANT: taxonomic_classification uses "srr_libs" (not "srr_ids") - it expects
 
 For services that take sequences, check the service description for the exact parameter name (e.g., "input_fasta_data", "input_sequence", etc.)
 
+## CRITICAL: Workspace Paths for Group Parameters
+
+When services require group parameters (feature_groups, genome_groups, select_genomegroup, etc.), these MUST be provided as lists of full workspace paths, NOT as group names or IDs.
+
+Examples:
+- **CORRECT**: `"feature_groups": ["/USERNAME/home/Feature Groups/my_feature_group"]`
+- **CORRECT**: `"genome_groups": ["/USERNAME/home/Genome Groups/my_genome_group"]`
+- **INCORRECT**: `"feature_groups": ["my_feature_group"]` (missing full path)
+- **INCORRECT**: `"feature_groups": "my_feature_group"` (not a list, missing path)
+
+**IMPORTANT**: For the MSA tool (msa_snp_analysis), the feature_groups parameter MUST be a list of workspace paths. Always use the format: `["/USERNAME/home/Feature Groups/group_name"]`
+
 Always refer to the detailed service descriptions in the AVAILABLE SERVICES section of the user prompt for the correct parameter names and structure.
 

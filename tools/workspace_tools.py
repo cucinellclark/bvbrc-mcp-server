@@ -445,17 +445,17 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
 
     @mcp.tool()
     async def get_genome_group_ids(token: Optional[str] = None, genome_group_name: str = None, genome_group_path: str = None) -> dict:
-        """Get the IDs of the genomes in a genome group.
+        """Get genome_ids from a specific genome group. Requires either genome_group_name or genome_group_path to identify the group.
 
         Args:
             token: Authentication token (optional - will use default if not provided)
-            genome_group_name: Name of the genome group to get the IDs of.
+            genome_group_name: Name of the genome group to get genome_ids from.
             genome_group_path: Full path for the genome group. If not provided, defaults to /<user_id>/home/Genome Groups/<genome_group_name>.
 
             Only one of genome_group_name or genome_group_path parameter can be provided.
 
         Returns:
-            List of genome IDs in the genome group.
+            List of genome_ids in the specified genome group.
         """
         if not genome_group_name and not genome_group_path:
             return {
@@ -496,12 +496,17 @@ def register_workspace_tools(mcp: FastMCP, api: JsonRpcCaller, token_provider: T
 
     @mcp.tool()
     async def get_feature_group_ids(token: Optional[str] = None, feature_group_name: str = None, feature_group_path: str = None) -> dict:
-        """Get the IDs of the features in a feature group.
+        """Get feature_ids from a specific feature group. Requires either feature_group_name or feature_group_path to identify the group.
 
         Args:
             token: Authentication token (optional - will use default if not provided)
-            feature_group_name: Name of the feature group to get the IDs of.
+            feature_group_name: Name of the feature group to get feature_ids from.
             feature_group_path: Full path for the feature group. If not provided, defaults to /<user_id>/home/Feature Groups/<feature_group_name>.
+            
+            Only one of feature_group_name or feature_group_path parameter can be provided.
+
+        Returns:
+            List of feature_ids in the specified feature group.
         """
         if not feature_group_name and not feature_group_path:
             return {

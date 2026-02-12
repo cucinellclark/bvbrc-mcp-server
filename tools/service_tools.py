@@ -250,7 +250,8 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
     async def plan_workflow(
         user_query: str = None, 
         token: Optional[str] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        workspace_items: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Plan a workflow from natural language description without executing it.
@@ -275,6 +276,8 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             token: Authentication token (optional - will use default if not provided)
             
             session_id: Optional session ID for retrieving session facts to enhance workflow generation
+            
+            workspace_items: Optional list of workspace items (files, directories, etc.) to include in workflow planning prompts
             
         Returns:
             Dictionary with:
@@ -351,7 +354,8 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 llm_client=llm_client,
                 auto_execute=False,  # Only plan, don't execute
                 workflow_engine_config=workflow_engine_config,
-                session_id=session_id
+                session_id=session_id,
+                workspace_items=workspace_items
             )
             
             return result

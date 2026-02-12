@@ -33,37 +33,6 @@ def load_prompt_file(filename: str) -> str:
         return f.read()
 
 
-def convert_friendly_names_to_api_names(workflow_manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Convert friendly service names to API names in workflow steps.
-    
-    This ensures that the 'app' field in each step uses the API name
-    instead of the friendly name, which is required by the workflow engine.
-    
-    Args:
-        workflow_manifest: The workflow manifest dictionary
-        
-    Returns:
-        The workflow manifest with API names in step 'app' fields
-    """
-    # Load service mapping
-    service_mapping = load_config_file('service_mapping.json')
-    friendly_to_api = service_mapping.get('friendly_to_api', {})
-    
-    # Convert app names in steps
-    if 'steps' in workflow_manifest and isinstance(workflow_manifest['steps'], list):
-        for step in workflow_manifest['steps']:
-            if isinstance(step, dict) and 'app' in step:
-                app_name = step['app']
-                # Convert friendly name to API name if it exists in the mapping
-                if app_name in friendly_to_api:
-                    api_name = friendly_to_api[app_name]
-                    print(f"Converting step app name from '{app_name}' to '{api_name}'", file=sys.stderr)
-                    step['app'] = api_name
-    
-    return workflow_manifest
-
-
 def clear_service_catalog():
     """
     Clear the service catalog.
@@ -191,7 +160,8 @@ async def select_services_for_workflow(
     token: str,
     user_id: str,
     llm_client: LLMClient,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    workspace_items: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     STEP 1: Select which services are needed for the workflow.
@@ -203,6 +173,7 @@ async def select_services_for_workflow(
         user_id: User ID for workspace paths
         llm_client: LLM client instance
         session_id: Optional session ID for retrieving session facts
+        workspace_items: Optional list of workspace items to include in the prompt
         
     Returns:
         Dictionary with:
@@ -231,11 +202,17 @@ async def select_services_for_workflow(
                 print(f"Warning: Could not retrieve session facts: {e}", file=sys.stderr)
                 session_facts_text = ""
         
+        # Format workspace items if provided
+        workspace_str = ""
+        if workspace_items and isinstance(workspace_items, list) and len(workspace_items) > 0:
+            print(f"STEP 1: Including {len(workspace_items)} workspace items", file=sys.stderr)
+            workspace_str = f"\n\nWORKSPACE ITEMS (available for reference):\n{json.dumps(workspace_items, indent=2)}\n\nThese files are in the user's workspace and may be relevant to the query."
+        
         # Build simple user prompt with just the query
         user_prompt = f"""Select the appropriate BV-BRC services for this user request:
 
 USER QUERY: {user_query}
-{session_facts_text}
+{session_facts_text}{workspace_str}
 Return a JSON object with "services" array and "reasoning" string."""
         
         # Make the LLM call
@@ -286,6 +263,171 @@ Return a JSON object with "services" array and "reasoning" string."""
         }
 
 
+def inject_workspace_items_into_workflow(
+    workflow_manifest: Dict[str, Any],
+    workspace_items: Optional[List[Dict[str, Any]]],
+    user_id: str
+) -> Dict[str, Any]:
+    """
+    Inject workspace_items into workflow steps by mapping them to appropriate file input parameters.
+    
+    This function modifies the workflow manifest to include workspace file paths in step parameters.
+    It intelligently maps workspace items to common file input parameters based on file types and
+    service requirements.
+    
+    Args:
+        workflow_manifest: The generated workflow manifest
+        workspace_items: List of workspace items with type, path, name properties
+        user_id: User ID for path normalization
+        
+    Returns:
+        Modified workflow manifest with workspace_items injected into step parameters
+    """
+    if not workspace_items or not isinstance(workspace_items, list) or len(workspace_items) == 0:
+        return workflow_manifest
+    
+    print(f"Injecting {len(workspace_items)} workspace items into workflow steps...", file=sys.stderr)
+    
+    # Create a copy to avoid modifying the original
+    workflow = json.loads(json.dumps(workflow_manifest))
+    
+    # Common file input parameter patterns by service type
+    # Maps file extensions/types to likely parameter names
+    file_type_to_params = {
+        # Sequence files
+        'fasta': ['input_file', 'genome_file', 'query_file', 'reference_file', 'sequence_file'],
+        'fa': ['input_file', 'genome_file', 'query_file', 'reference_file', 'sequence_file'],
+        'fna': ['input_file', 'genome_file', 'reference_file'],
+        'faa': ['input_file', 'protein_file', 'query_file'],
+        'fastq': ['reads_file', 'input_file', 'read_file', 'reads1', 'reads2'],
+        'fq': ['reads_file', 'input_file', 'read_file', 'reads1', 'reads2'],
+        # Annotation files
+        'gff': ['annotation_file', 'input_file', 'gff_file'],
+        'gff3': ['annotation_file', 'input_file', 'gff_file'],
+        'gtf': ['annotation_file', 'input_file', 'gtf_file'],
+        'gb': ['genbank_file', 'input_file'],
+        'gbk': ['genbank_file', 'input_file'],
+        # Alignment files
+        'sam': ['alignment_file', 'input_file', 'sam_file'],
+        'bam': ['alignment_file', 'input_file', 'bam_file'],
+        'vcf': ['vcf_file', 'input_file', 'variation_file'],
+        # Tabular data
+        'csv': ['input_file', 'data_file', 'csv_file'],
+        'tsv': ['input_file', 'data_file', 'tsv_file'],
+        'txt': ['input_file', 'data_file', 'text_file'],
+    }
+    
+    # Get file extension from path
+    def get_file_extension(path: str) -> str:
+        if not path:
+            return ''
+        parts = path.split('.')
+        if len(parts) > 1:
+            return parts[-1].lower()
+        return ''
+    
+    # Normalize workspace path (ensure it starts with /user_id/)
+    def normalize_workspace_path(path: str) -> str:
+        if not path:
+            return path
+        # If path doesn't start with /, assume it's relative to user home
+        if not path.startswith('/'):
+            return f"/{user_id}/home/{path}"
+        # If path starts with / but not /user_id/, prepend user_id
+        if not path.startswith(f"/{user_id}/"):
+            # Remove leading / and add user_id
+            path = path.lstrip('/')
+            return f"/{user_id}/{path}"
+        return path
+    
+    # Process each step in the workflow
+    if 'steps' not in workflow or not isinstance(workflow['steps'], list):
+        print("Warning: Workflow has no steps, skipping workspace_items injection", file=sys.stderr)
+        return workflow
+    
+    # Track which workspace items have been used
+    used_items = set()
+    
+    for step_idx, step in enumerate(workflow['steps']):
+        if not isinstance(step, dict) or 'params' not in step:
+            continue
+        
+        step_name = step.get('step_name', f'step_{step_idx}')
+        params = step.get('params', {})
+        app = step.get('app', '')
+        
+        print(f"Processing step {step_idx + 1}: {step_name} (app: {app})", file=sys.stderr)
+        
+        # Find matching workspace items for this step
+        for item_idx, item in enumerate(workspace_items):
+            if item_idx in used_items:
+                continue
+            
+            item_path = item.get('path', '')
+            item_name = item.get('name', '')
+            item_type = item.get('type', '')
+            
+            if not item_path:
+                continue
+            
+            # Normalize the path
+            normalized_path = normalize_workspace_path(item_path)
+            file_ext = get_file_extension(item_path)
+            
+            # Get potential parameter names for this file type
+            potential_params = file_type_to_params.get(file_ext, ['input_file'])
+            
+            # Try to find a matching parameter in the step
+            # Priority: prefer parameters that match the file type, but override any existing values
+            matched_param = None
+            for param_name in potential_params:
+                # Always override if parameter exists (workspace_items take precedence)
+                if param_name in params:
+                    matched_param = param_name
+                    break
+                else:
+                    # Parameter doesn't exist, we can add it
+                    matched_param = param_name
+                    break
+            
+            # If we found a match, inject the workspace item
+            if matched_param:
+                params[matched_param] = normalized_path
+                used_items.add(item_idx)
+                print(f"  -> Injected workspace item '{item_name}' into parameter '{matched_param}': {normalized_path}", file=sys.stderr)
+                break  # Use one workspace item per step for now
+        
+        # If this step didn't get a workspace item but has file parameters that need filling,
+        # try to inject the first unused workspace item as a generic input_file
+        step_has_file_params = any(
+            param in params for param in 
+            ['input_file', 'reads_file', 'genome_file', 'query_file', 'reference_file', 'annotation_file']
+        )
+        
+        # Check if this step's input_file (or similar) is empty and we have unused workspace items
+        needs_file_input = (
+            step_has_file_params and 
+            ('input_file' not in params or not params.get('input_file') or 
+             params.get('input_file') in ['', None, '${params.input_file}', 'TBD'])
+        )
+        
+        if needs_file_input:
+            # Find first unused workspace item
+            for item_idx, item in enumerate(workspace_items):
+                if item_idx not in used_items:
+                    item_path = item.get('path', '')
+                    if item_path:
+                        normalized_path = normalize_workspace_path(item_path)
+                        # Use input_file as fallback
+                        params['input_file'] = normalized_path
+                        used_items.add(item_idx)
+                        print(f"  -> Injected workspace item '{item.get('name', '')}' as fallback input_file: {normalized_path}", file=sys.stderr)
+                        break
+    
+    print(f"Injected {len(used_items)} workspace items into workflow", file=sys.stderr)
+    return workflow
+
+
 async def generate_workflow_with_services(
     user_query: str,
     selected_services: List[str],
@@ -295,7 +437,8 @@ async def generate_workflow_with_services(
     llm_client: LLMClient,
     validation_error: Optional[str] = None,
     previous_workflow: Optional[Dict[str, Any]] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    workspace_items: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     STEP 2: Generate workflow manifest with detailed parameters for selected services.
@@ -307,7 +450,10 @@ async def generate_workflow_with_services(
         token: Authentication token
         user_id: User ID for workspace paths
         llm_client: LLM client instance
+        validation_error: Optional validation error message from previous attempt
+        previous_workflow: Optional previous workflow JSON for fixing errors
         session_id: Optional session ID for retrieving session facts
+        workspace_items: Optional list of workspace items to include in the prompt
         
     Returns:
         Dict containing workflow_json and prompt_payload, or error details
@@ -371,6 +517,12 @@ async def generate_workflow_with_services(
                 print(f"Warning: Could not retrieve session facts: {e}", file=sys.stderr)
                 session_facts_text = ""
         
+        # Format workspace items if provided
+        workspace_str = ""
+        if workspace_items and isinstance(workspace_items, list) and len(workspace_items) > 0:
+            print(f"STEP 2: Including {len(workspace_items)} workspace items", file=sys.stderr)
+            workspace_str = f"\n\nWORKSPACE ITEMS (available for reference):\n{json.dumps(workspace_items, indent=2)}\n\nThese files are in the user's workspace and may be relevant to the query."
+        
         # Load parameter generation system prompt
         system_prompt = load_prompt_file('workflow_parameter_generation.txt')
         
@@ -382,7 +534,7 @@ async def generate_workflow_with_services(
         user_prompt = f"""Generate a complete workflow manifest for the following user request using THESE SPECIFIC SERVICES:
 
 USER QUERY: {user_query}
-{session_context}
+{session_context}{workspace_str}
 SELECTED SERVICES: {json.dumps(selected_services)}
 
 DETAILED SERVICE SPECIFICATIONS (read these carefully for exact parameter names and requirements):
@@ -445,8 +597,13 @@ PREVIOUS WORKFLOW (fix only what is needed to address validation errors):
         # Parse JSON
         workflow_manifest = json.loads(response_text)
         
-        # Convert friendly names to API names in workflow steps
-        workflow_manifest = convert_friendly_names_to_api_names(workflow_manifest)
+        # Inject workspace_items into workflow steps if provided
+        if workspace_items:
+            workflow_manifest = inject_workspace_items_into_workflow(
+                workflow_manifest,
+                workspace_items,
+                user_id
+            )
         
         # Update workspace_output_folder with actual user_id
         if 'base_context' in workflow_manifest:
@@ -496,7 +653,8 @@ async def generate_workflow_manifest_internal(
     llm_client: LLMClient,
     validation_error: Optional[str] = None,
     previous_workflow: Optional[Dict[str, Any]] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    workspace_items: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     Generate a workflow manifest using TWO-STEP LLM-based planning.
@@ -510,7 +668,10 @@ async def generate_workflow_manifest_internal(
         token: Authentication token
         user_id: User ID for workspace paths
         llm_client: LLM client instance
+        validation_error: Optional validation error message from previous attempt
+        previous_workflow: Optional previous workflow JSON for fixing errors
         session_id: Optional session ID for retrieving session facts
+        workspace_items: Optional list of workspace items to include in prompts
         
     Returns:
         Dict containing workflow_json and prompt_payload, or error details
@@ -523,7 +684,8 @@ async def generate_workflow_manifest_internal(
             token=token,
             user_id=user_id,
             llm_client=llm_client,
-            session_id=session_id
+            session_id=session_id,
+            workspace_items=workspace_items
         )
         
         # Check if selection failed
@@ -551,7 +713,8 @@ async def generate_workflow_manifest_internal(
             llm_client=llm_client,
             validation_error=validation_error,
             previous_workflow=previous_workflow,
-            session_id=session_id
+            session_id=session_id,
+            workspace_items=workspace_items
         )
         
         return workflow_result
@@ -621,7 +784,8 @@ async def create_and_execute_workflow_internal(
     llm_client: LLMClient,
     auto_execute: bool = True,
     workflow_engine_config: Optional[Dict[str, Any]] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    workspace_items: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     Generate a workflow from natural language, validate it, and optionally submit it for execution.
@@ -637,6 +801,7 @@ async def create_and_execute_workflow_internal(
         auto_execute: If True, submit workflow to engine after generation (default: True)
         workflow_engine_config: Workflow engine configuration dict (optional)
         session_id: Optional session ID for retrieving session facts
+        workspace_items: Optional list of workspace items to include in workflow planning prompts
         
     Returns:
         Dictionary with workflow_id, status, and workflow_json if successful,
@@ -662,7 +827,8 @@ async def create_and_execute_workflow_internal(
                 llm_client=llm_client,
                 validation_error=validation_error,
                 previous_workflow=previous_workflow,
-                session_id=session_id
+                session_id=session_id,
+                workspace_items=workspace_items
             )
             
             # Check if generation returned an error

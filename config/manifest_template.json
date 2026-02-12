@@ -201,11 +201,11 @@
     },
     {
       "name": "get_genome_group_ids",
-      "description": "Get the IDs of the genomes in a genome group"
+      "description": "Get genome_ids from a specific genome group (requires genome_group_name or genome_group_path)"
     },
     {
       "name": "get_feature_group_ids",
-      "description": "Get the IDs of the features in a feature group"
+      "description": "Get feature_ids from a specific feature group (requires feature_group_name or feature_group_path)"
     }
   ],
   "license": "MIT"
