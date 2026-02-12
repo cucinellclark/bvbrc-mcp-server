@@ -8,8 +8,13 @@ Refactored to use a unified service submission pattern similar to data_tools.py
 """
 import sys
 import json
+import time
+import os
+import traceback
 from fastmcp import FastMCP
 from common.json_rpc import JsonRpcCaller
+from common.llm_client import create_llm_client_from_config
+from common.workflow_engine_client import WorkflowEngineClient, WorkflowEngineError
 from functions.service_functions import (
     enumerate_apps, start_date_app, start_genome_annotation_app, query_tasks,
     start_genome_assembly_app, start_comprehensive_genome_analysis_app, start_blast_app,
@@ -237,137 +242,27 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             available = sorted(list(SERVICE_MAP.keys()) + list(SPECIAL_API_SERVICES.keys()))
             return f"Error getting service submission schema: {str(e)}\n\nAvailable services: {', '.join(available)}"
 
-    @mcp.tool(name="get_job_details")
-    async def service_get_job_details(task_ids: List[str] = None, token: Optional[str] = None) -> str:
-        """
-        Query the status and details of submitted jobs/tasks.
-        
-        Args:
-            task_ids: List of task IDs to query (obtained from service submission results)
-            token: Authentication token (optional - will use default if not provided)
-            
-        Returns:
-            JSON string with detailed information about each task including status, progress, and results
-        """
-        if not task_ids:
-            return "Error: task_ids parameter is required"
-            
-        auth_token = token_provider.get_token(token)
-        if not auth_token:
-            return "Error: No authentication token available"
-        
-        user_id = extract_userid_from_token(auth_token)
-        params = {"task_ids": task_ids}
-        return await query_tasks(api, token=auth_token, user_id=user_id, params=params)
 
-    # Main Service Submission Tool
+
+    # Workflow Tools
     
-    @mcp.tool(name="submit_service")
-    async def submit_service(service_name: str = None, parameters: Dict[str, Any] = None, token: Optional[str] = None) -> str:
-        """
-        Submit a service job to BV-BRC. This is the unified tool for submitting any BV-BRC service.
-        
-        IMPORTANT: Always use the get_service_submission_schema tool first to understand the required parameters for the service.
-        
-        Args:
-            service_name: Name of the service to submit (e.g., 'genome_assembly', 'blast', 'rnaseq')
-            parameters: Dictionary of service-specific parameters as documented by get_service_submission_schema
-            token: Authentication token (optional - will use default if not provided)
-            
-        Returns:
-            JSON string with job submission result including task ID for tracking
-            
-        Available services:
-            Genomics: genome_assembly, genome_annotation, comprehensive_genome_analysis, blast, 
-                     primer_design, variation, tnseq
-            Phylogenomics: bacterial_genome_tree, gene_tree, core_genome_mlst, whole_genome_snp
-            Metagenomics: taxonomic_classification, metagenomic_binning, metagenomic_read_mapping
-            Transcriptomics: rnaseq, expression_import
-            Viral: sars_wastewater_analysis, sequence_submission, influenza_ha_subtype_conversion,
-                   subspecies_classification, viral_assembly, sars_genome_analysis
-            Other: genome_alignment, msa_snp_analysis, metacats, proteome_comparison,
-                   comparative_systems, docking, similar_genome_finder, fastqutils, date
-        
-        Example usage:
-            1. First call: get_service_submission_schema(service_name="blast")
-            2. Then call: submit_service(
-                service_name="blast",
-                parameters={
-                    "input_type": "dna_fasta",
-                    "input_source": "fasta_data",
-                    "input_fasta_data": ">seq1\\nATCG...",
-                    "db_type": "dna",
-                    "db_source": "genome_list",
-                    "db_genome_list": ["123.456"],
-                    "blast_program": "blastn",
-                    "output_path": "MyFolder",
-                    "output_file": "blast_results"
-                }
-            )
-        """
-        if not service_name:
-            available = sorted(list(SERVICE_MAP.keys()) + list(SPECIAL_API_SERVICES.keys()))
-            return f"Error: service_name parameter is required\n\nAvailable services: {', '.join(available)}"
-        
-        # Convert BV-BRC name to friendly name if needed
-        if service_name in BVBRC_TO_FRIENDLY:
-            service_name = BVBRC_TO_FRIENDLY[service_name]
-        
-        if parameters is None:
-            return f"Error: parameters dictionary is required. Use get_service_submission_schema(service_name='{service_name}') to see required parameters."
-        
-        # Get authentication token
-        auth_token = token_provider.get_token(token)
-        if not auth_token:
-            return "Error: No authentication token available"
-        
-        # Extract user ID for path resolution
-        user_id = extract_userid_from_token(auth_token)
-        
-        # Check if service exists in special API services
-        if service_name in SPECIAL_API_SERVICES:
-            special_api, service_func = SPECIAL_API_SERVICES[service_name]
-            try:
-                return await service_func(special_api, token=auth_token, user_id=user_id, **parameters)
-            except TypeError as e:
-                return f"Error: Invalid parameters for service '{service_name}'. Use get_service_submission_schema(service_name='{service_name}') to see correct parameters.\n\nDetails: {str(e)}"
-            except Exception as e:
-                return f"Error submitting service '{service_name}': {str(e)}"
-        
-        # Check if service exists in regular services
-        if service_name not in SERVICE_MAP:
-            available = sorted(list(SERVICE_MAP.keys()) + list(SPECIAL_API_SERVICES.keys()))
-            return f"Error: Unknown service '{service_name}'.\n\nAvailable services:\n" + "\n".join(f"  - {svc}" for svc in available)
-        
-        # Get the service function
-        service_func = SERVICE_MAP[service_name]
-        
-        # Submit the service with the provided parameters
-        try:
-            result = await service_func(api, token=auth_token, user_id=user_id, **parameters)
-            return result
-        except TypeError as e:
-            return f"Error: Invalid parameters for service '{service_name}'. Use get_service_submission_schema(service_name='{service_name}') to see correct parameters.\n\nDetails: {str(e)}"
-        except Exception as e:
-            import traceback
-            error_trace = traceback.format_exc()
-            print(f"Exception in submit_service for '{service_name}': {error_trace}", file=sys.stderr)
-            return f"Error submitting service '{service_name}': {str(e)}\n\nUse get_service_submission_schema(service_name='{service_name}') to verify parameters."
-
-    @mcp.tool(name="create_and_execute_workflow")
-    async def create_and_execute_workflow(
+    @mcp.tool(name="plan_workflow")
+    async def plan_workflow(
         user_query: str = None, 
-        auto_execute: bool = True,
         token: Optional[str] = None,
         session_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Create a workflow from natural language description and optionally execute it.
+        Plan a workflow from natural language description without executing it.
         
-        This tool provides complete end-to-end workflow lifecycle management:
-        1. Generation: Uses LLM to analyze your request and generate a workflow manifest
-        2. Basic Validation: Checks basic structure (detailed validation by workflow engine)
-        3. Execution: Submits the workflow to the workflow engine for execution
+        This tool generates a workflow manifest (plan) based on your natural language request.
+        The workflow is validated for basic structure but NOT submitted for execution.
+        Use submit_workflow() to actually execute the planned workflow.
+        
+        This two-step approach allows you to:
+        1. Review the planned workflow before execution
+        2. Modify parameters if needed
+        3. Reuse workflow plans for similar tasks
         
         Args:
             user_query: Natural language description of the desired workflow.
@@ -377,51 +272,39 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                        - "Map RNA-seq reads to reference genome and analyze expression"
                        - "Run BLAST on my sequences then build a phylogenetic tree"
             
-            auto_execute: If True (default), submit workflow for execution after generation.
-                         If False, only generate and validate the workflow without executing.
-                         
             token: Authentication token (optional - will use default if not provided)
             
             session_id: Optional session ID for retrieving session facts to enhance workflow generation
             
         Returns:
             Dictionary with:
-            - If auto_execute=True and successful:
+            - On success:
               {
-                "workflow_id": "wf_123...",
-                "status": "pending",
-                "workflow_json": {...},
-                "submitted_at": "2026-02-04T10:30:00Z",
-                "message": "Workflow created and submitted for execution",
-                "status_url": "http://.../workflows/wf_123/status"
-              }
-              
-            - If auto_execute=False:
-              {
-                "workflow_json": {...},
-                "message": "Workflow generated and validated (not submitted)"
+                "workflow_json": {...},  // Complete workflow manifest ready for submission
+                "message": "Workflow planned and validated (not submitted)",
+                "prompt_payload": {...}  // Details about the planning process
               }
               
             - On error:
               {
                 "error": "Error description",
-                "errorType": "GENERATION_FAILED | VALIDATION_FAILED | SUBMISSION_FAILED",
-                "stage": "generation | validation | submission",
+                "errorType": "GENERATION_FAILED | VALIDATION_FAILED",
+                "stage": "generation | validation",
                 "hint": "Helpful suggestion",
                 "partial_workflow": {...}  // If available
               }
         
         Notes:
-            - The workflow engine must be running and configured for execution
-            - If the workflow engine is unavailable, the tool will return the generated 
-              workflow JSON with a warning
-            - Use get_job_details() to check the status of executed workflows
+            - The returned workflow_json can be passed to submit_workflow() for execution
+            - You can inspect and modify the workflow_json before submission
+            - The workflow is validated for basic structure but detailed validation 
+              occurs when submitted to the workflow engine
         """
         if not user_query:
             return {
                 "error": "user_query parameter is required",
                 "errorType": "INVALID_PARAMETERS",
-                "example": "create_and_execute_workflow(user_query='Assemble reads and annotate the genome')",
+                "example": "plan_workflow(user_query='Assemble reads and annotate the genome')",
                 "hint": "Provide a natural language description of your desired workflow",
                 "source": "bvbrc-service"
             }
@@ -448,28 +331,25 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
         
         try:
             # Load configuration
-            import os
-            import json as json_lib
             config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'config.json')
             
             with open(config_path, 'r') as f:
-                config = json_lib.load(f)
+                config = json.load(f)
             
             # Create LLM client
-            from common.llm_client import create_llm_client_from_config
             llm_client = create_llm_client_from_config(config)
             
             # Get workflow engine configuration
             workflow_engine_config = config.get('workflow_engine', {})
             
-            # Create and optionally execute workflow
+            # Plan workflow (auto_execute=False means only generate, don't submit)
             result = await create_and_execute_workflow_internal(
                 user_query=user_query,
                 api=api,
                 token=auth_token,
                 user_id=user_id,
                 llm_client=llm_client,
-                auto_execute=auto_execute,
+                auto_execute=False,  # Only plan, don't execute
                 workflow_engine_config=workflow_engine_config,
                 session_id=session_id
             )
@@ -484,13 +364,203 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 "source": "bvbrc-service"
             }
         except Exception as e:
-            import traceback
             error_trace = traceback.format_exc()
-            print(f"Error in create_and_execute_workflow: {error_trace}", file=sys.stderr)
+            print(f"Error in plan_workflow: {error_trace}", file=sys.stderr)
             return {
                 "error": str(e),
                 "errorType": "UNKNOWN_ERROR",
                 "stage": "initialization",
+                "traceback": error_trace,
+                "source": "bvbrc-service"
+            }
+
+    @mcp.tool(name="submit_workflow")
+    async def submit_workflow(
+        workflow_json: Dict[str, Any] = None,
+        token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Submit a planned workflow for execution.
+        
+        This tool takes a workflow manifest (typically generated by plan_workflow) and 
+        submits it to the workflow engine for execution. The workflow engine will:
+        1. Perform detailed validation
+        2. Schedule and execute workflow steps in sequence
+        3. Handle dependencies between steps
+        4. Track progress and results
+        
+        Args:
+            workflow_json: Complete workflow manifest dictionary (from plan_workflow or manually created)
+            token: Authentication token (optional - will use default if not provided)
+            
+        Returns:
+            Dictionary with:
+            - On success:
+              {
+                "workflow_id": "wf_123...",  // Unique workflow identifier
+                "status": "pending",
+                "workflow_json": {...},      // Submitted workflow with IDs assigned
+                "submitted_at": "2026-02-04T10:30:00Z",
+                "message": "Workflow submitted for execution",
+                "status_url": "http://.../workflows/wf_123/status"
+              }
+              
+            - On error:
+              {
+                "error": "Error description",
+                "errorType": "SUBMISSION_FAILED | VALIDATION_FAILED | ENGINE_UNAVAILABLE",
+                "hint": "Helpful suggestion",
+                "workflow_json": {...}  // Original workflow for reference
+              }
+        
+        Notes:
+            - The workflow engine must be running and configured for execution
+            - The workflow will be validated by the engine before execution
+            - Use workflow monitoring tools to track execution progress
+            - The workflow_id can be used to query status and retrieve results
+        
+        Example:
+            # First, plan the workflow
+            plan = plan_workflow(user_query="Assemble and annotate genome")
+            
+            # Review the plan, then submit it
+            result = submit_workflow(workflow_json=plan["workflow_json"])
+        """
+        if not workflow_json:
+            return {
+                "error": "workflow_json parameter is required",
+                "errorType": "INVALID_PARAMETERS",
+                "hint": "Provide a workflow manifest dictionary (typically from plan_workflow)",
+                "example": "submit_workflow(workflow_json=plan_result['workflow_json'])",
+                "source": "bvbrc-service"
+            }
+        
+        # Get authentication token
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_FAILED",
+                "hint": "Please provide a valid authentication token",
+                "source": "bvbrc-service"
+            }
+        
+        # Extract user ID
+        user_id = extract_userid_from_token(auth_token)
+        if not user_id:
+            return {
+                "error": "Could not extract user ID from token",
+                "errorType": "AUTHENTICATION_FAILED",
+                "hint": "The provided token is invalid or malformed",
+                "source": "bvbrc-service"
+            }
+        
+        try:
+            # Load configuration
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'config.json')
+            
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            
+            # Get workflow engine configuration
+            workflow_engine_config = config.get('workflow_engine', {})
+            
+            # Check if workflow engine is enabled
+            if not workflow_engine_config or not workflow_engine_config.get('enabled', False):
+                return {
+                    "workflow_json": workflow_json,
+                    "error": "Workflow engine is disabled in configuration",
+                    "errorType": "ENGINE_UNAVAILABLE",
+                    "hint": "Enable workflow_engine in config.json to submit workflows for execution",
+                    "source": "bvbrc-service"
+                }
+            
+            # Setup workflow engine client
+            engine_url = workflow_engine_config.get('api_url', 'http://localhost:8000/api/v1')
+            engine_timeout = workflow_engine_config.get('timeout', 30)
+            
+            client = WorkflowEngineClient(base_url=engine_url, timeout=engine_timeout)
+            
+            # Check if engine is healthy
+            print("Checking workflow engine health...", file=sys.stderr)
+            is_healthy = await client.health_check()
+            if not is_healthy:
+                print("Workflow engine health check failed", file=sys.stderr)
+                return {
+                    "workflow_json": workflow_json,
+                    "error": "Workflow engine is not available",
+                    "errorType": "ENGINE_UNAVAILABLE",
+                    "hint": f"Ensure workflow engine is running at {engine_url}",
+                    "submission_url": f"{engine_url}/workflows/submit",
+                    "source": "bvbrc-service"
+                }
+            
+            # Clean the workflow before submission - remove any fields that workflow engine assigns
+            # The workflow engine assigns workflow_id and step_ids, so we must remove them if present
+            workflow_for_submission = workflow_json.copy()
+            workflow_for_submission.pop('workflow_id', None)  # Remove if present
+            workflow_for_submission.pop('status', None)  # Remove if present
+            workflow_for_submission.pop('created_at', None)  # Remove if present
+            workflow_for_submission.pop('updated_at', None)  # Remove if present
+            workflow_for_submission.pop('submitted_at', None)  # Remove if present
+            
+            # Clean steps - remove execution metadata
+            if 'steps' in workflow_for_submission:
+                for step in workflow_for_submission['steps']:
+                    step.pop('step_id', None)  # Workflow engine assigns this
+                    step.pop('status', None)  # Execution metadata
+                    step.pop('task_id', None)  # Execution metadata
+            
+            # Submit the workflow
+            print(f"Submitting workflow to {engine_url}...", file=sys.stderr)
+            result = await client.submit_workflow(workflow_for_submission, auth_token)
+            
+            print(f"Workflow submitted successfully: {result.get('workflow_id')}", file=sys.stderr)
+            
+            # Update the workflow_json with the real workflow_id from the engine
+            # This ensures the returned workflow_json has the actual ID, not any placeholder
+            updated_workflow_json = workflow_json.copy()
+            updated_workflow_json['workflow_id'] = result.get('workflow_id')
+            
+            # Also update status and timestamps if available
+            updated_workflow_json['status'] = result.get('status', 'pending')
+            updated_workflow_json['submitted_at'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            
+            # Return success response
+            return {
+                "workflow_id": result.get('workflow_id'),
+                "status": result.get('status', 'pending'),
+                "workflow_json": updated_workflow_json,
+                "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "message": result.get('message', 'Workflow submitted for execution'),
+                "status_url": f"{engine_url}/workflows/{result.get('workflow_id')}/status",
+                "source": "bvbrc-service"
+            }
+            
+        except WorkflowEngineError as e:
+            print(f"Workflow engine error: {e}", file=sys.stderr)
+            return {
+                "workflow_json": workflow_json,
+                "error": str(e),
+                "errorType": e.error_type if hasattr(e, 'error_type') else "SUBMISSION_FAILED",
+                "hint": "The workflow engine rejected the workflow. Check the error message for details.",
+                "source": "bvbrc-service"
+            }
+        except FileNotFoundError as e:
+            return {
+                "workflow_json": workflow_json,
+                "error": f"Configuration file not found: {str(e)}",
+                "errorType": "CONFIGURATION_ERROR",
+                "hint": "Ensure config/config.json exists with 'workflow_engine' section",
+                "source": "bvbrc-service"
+            }
+        except Exception as e:
+            error_trace = traceback.format_exc()
+            print(f"Error in submit_workflow: {error_trace}", file=sys.stderr)
+            return {
+                "workflow_json": workflow_json,
+                "error": str(e),
+                "errorType": "UNKNOWN_ERROR",
                 "traceback": error_trace,
                 "source": "bvbrc-service"
             }
