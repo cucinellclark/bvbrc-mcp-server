@@ -33,6 +33,10 @@ Hard Validation Rules
 - Reject non-enum values for `input_type`, `recipe`, `domain`, `code`, and library `platform`
 - Reject ambiguous mixed input-mode payloads
 - Normalize common aliases only when unambiguous (`read` -> `reads`, `meta-flye` -> `flye`, `bacterial` -> `Bacteria`)
+- For paired reads, use canonical object shape only:
+  - each `paired_end_libs` item must include `read1` and `read2`
+  - optional fields: `platform`, `interleaved`, `read_orientation_outward`
+- Do not emit paired-read aliases like `left_reads/right_reads`, `forward_reads/reverse_reads`, `r1/r2`, or `file/lib_type` objects
 
 Common Failure To Avoid
 - Invalid recipe IDs (`meta-flye`, `megahit`) without normalization/confirmation
@@ -45,7 +49,13 @@ Examples
   "input_type": "reads",
   "output_path": "/USERNAME/home/Project",
   "output_file": "ecoli_cga",
-  "srr_ids": ["SRR1234567"],
+  "paired_end_libs": [
+    {
+      "read1": "/USERNAME/home/reads/sample_R1.fastq",
+      "read2": "/USERNAME/home/reads/sample_R2.fastq",
+      "platform": "illumina"
+    }
+  ],
   "scientific_name": "Escherichia coli",
   "taxonomy_id": 562,
   "code": 11,
