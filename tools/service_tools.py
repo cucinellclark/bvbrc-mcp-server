@@ -29,7 +29,7 @@ from functions.service_functions import (
     start_docking_app, start_similar_genome_finder_app, get_service_info
 )
 from functions.workflow_functions import generate_workflow_manifest_internal, create_and_execute_workflow_internal
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Union
 
 
 def extract_userid_from_token(token: str = None) -> str:
@@ -213,12 +213,12 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             }
 
     @mcp.tool(name="get_job_details", annotations={"readOnlyHint": True})
-    async def service_get_job_details(task_ids: Optional[List[str]] = None, token: Optional[str] = None) -> Dict[str, Any]:
+    async def service_get_job_details(task_ids: Optional[List[Union[str, int]]] = None, token: Optional[str] = None) -> Dict[str, Any]:
         """
         Query task details by task IDs.
 
         Args:
-            task_ids: List of task IDs to query
+            task_ids: List of task IDs to query (can be strings or numbers)
             token: Authentication token (optional - will use default if not provided)
         """
         if not task_ids or not isinstance(task_ids, list):
@@ -236,12 +236,15 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 "source": "bvbrc-service"
             }
 
+        # Convert all task IDs to strings (handles both string and numeric IDs)
+        task_ids_str = [str(task_id) for task_id in task_ids]
+
         user_id = extract_userid_from_token(auth_token)
         return await query_tasks(
             api,
             auth_token,
             user_id=user_id,
-            params={"task_ids": task_ids}
+            params={"task_ids": task_ids_str}
         )
 
     @mcp.tool(name="list_jobs", annotations={"readOnlyHint": True})
@@ -258,6 +261,24 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
     ) -> Dict[str, Any]:
         """
         List recent jobs with sorting/filtering support.
+        
+        Args:
+            token: Authentication token (optional)
+            limit: Maximum number of jobs to return
+            offset: Number of jobs to skip (for pagination)
+            sort_by: Field to sort by (e.g., "submit_time", "status")
+            sort_dir: Sort direction ("asc" or "desc")
+            status: Filter by job status (e.g., "completed", "running", "failed")
+            service: Filter by service name. Valid service names include:
+                bacterial_genome_tree, blast, comparative_systems, comprehensive_genome_analysis,
+                core_genome_mlst, date, docking, expression_import, fastqutils, gene_tree,
+                genome_alignment, genome_annotation, genome_assembly, influenza_ha_subtype_conversion,
+                metacats, metagenomic_binning, metagenomic_read_mapping, msa_snp_analysis,
+                primer_design, proteome_comparison, rnaseq, sars_genome_analysis, sars_wastewater_analysis,
+                sequence_submission, similar_genome_finder, subspecies_classification, taxonomic_classification,
+                tnseq, variation, viral_assembly, whole_genome_snp
+            search: Search term to filter jobs by name or description
+            include_archived: Whether to include archived jobs
         """
         auth_token = token_provider.get_token(token)
         if not auth_token:
@@ -266,6 +287,10 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 "errorType": "AUTHENTICATION_FAILED",
                 "source": "bvbrc-service"
             }
+
+        # Convert friendly service name to BVBRC API name if needed
+        if service and service in FRIENDLY_TO_BVBRC:
+            service = FRIENDLY_TO_BVBRC[service]
 
         user_id = extract_userid_from_token(auth_token)
         return await list_jobs(
