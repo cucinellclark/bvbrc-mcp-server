@@ -31,7 +31,6 @@ from functions.service_functions import (
 from functions.workflow_functions import (
     generate_workflow_manifest_internal,
     create_and_execute_workflow_internal,
-    prepare_workflow_for_engine_validation,
 )
 from typing import Any, List, Dict, Optional, Union
 
@@ -265,7 +264,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
     ) -> Dict[str, Any]:
         """
         List recent jobs with sorting/filtering support.
-        
+
         Args:
             token: Authentication token (optional)
             limit: Maximum number of jobs to return
@@ -380,30 +379,15 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             workspace_items: Optional list of workspace items (files, directories, etc.) to include in workflow planning prompts
 
         Returns:
-            Dictionary with:
-            - On success:
+            Dictionary with workflow identity and summary fields:
               {
-                "workflow_json": {...},  // Complete workflow manifest ready for submission
-                "workflow_description": "Planned workflow with ...",  // Deterministic plain-text summary from steps
-                "message": "Workflow planned and validated (not submitted)",
-                "prompt_payload": {...}  // Details about the planning process
+                "workflow_id": "wf_...",
+                "status": "planned",
+                "workflow_name": "...",
+                "step_count": 3,
+                "workflow_description": "Planned workflow with ...",
+                "message": "Workflow planned and saved. Use submit_workflow(workflow_id=...) to execute."
               }
-
-            - On error:
-              {
-                "error": "Error description",
-                "errorType": "GENERATION_FAILED | VALIDATION_FAILED",
-                "stage": "generation | validation",
-                "hint": "Helpful suggestion",
-                "partial_workflow": {...}  // If available
-              }
-
-        Notes:
-            - The returned workflow_json can be passed to submit_workflow() for execution
-            - workflow_description is generated deterministically from workflow steps
-            - You can inspect and modify the workflow_json before submission
-            - The workflow is validated locally and, when configured, by the workflow engine
-            - The returned workflow_json is prepared for submit_workflow()
         """
         if not user_query:
             return {
@@ -447,8 +431,8 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             # Get workflow engine configuration
             workflow_engine_config = config.get('workflow_engine', {})
 
-            # Plan workflow (auto_execute=False means only generate, don't submit)
-            result = await create_and_execute_workflow_internal(
+            # Generate and validate workflow manifest first (no execution)
+            generated = await create_and_execute_workflow_internal(
                 user_query=user_query,
                 api=api,
                 token=auth_token,
@@ -459,7 +443,65 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 session_id=session_id,
                 workspace_items=workspace_items
             )
+            if "error" in generated:
+                return generated
 
+            workflow_json = generated.get("workflow_json")
+            if not workflow_json or not isinstance(workflow_json, dict):
+                return {
+                    "error": "Failed to generate workflow plan payload",
+                    "errorType": "GENERATION_FAILED",
+                    "stage": "planning",
+                    "source": "bvbrc-service"
+                }
+
+            # Return the workflow JSON directly with validation notes
+            # The workflow has defaults applied and validation has been run (non-blocking)
+            workflow_name = workflow_json.get("workflow_name", "Workflow")
+            step_count = len(workflow_json.get("steps", []))
+            
+            persisted_workflow_id = generated.get("workflow_id")
+            persisted_status = generated.get("status", "planned")
+            if not persisted_workflow_id:
+                return {
+                    "error": "Workflow plan was generated but not persisted; no workflow_id was returned",
+                    "errorType": "PLANNING_NOT_PERSISTED",
+                    "stage": "planning",
+                    "hint": "Ensure workflow engine planning is enabled and reachable",
+                    "source": "bvbrc-service"
+                }
+
+            result = {
+                "workflow_id": persisted_workflow_id,
+                "status": persisted_status,
+                "workflow_name": workflow_name,
+                "step_count": step_count,
+                "workflow_json": workflow_json,
+                "workflow_description": generated.get("workflow_description"),
+                "ready_for_submission": generated.get("ready_for_submission", True),
+                "validation": generated.get("validation", {}),
+                "call": {
+                    "tool": "plan_workflow",
+                    "arguments_executed": {
+                        "user_query": user_query,
+                        "session_id": session_id,
+                        "workspace_items_count": len(workspace_items) if isinstance(workspace_items, list) else 0
+                    },
+                    "replayable": True
+                },
+                "source": "bvbrc-service"
+            }
+            
+            # Include validation errors and notes if present
+            if "validation_errors" in generated:
+                result["validation_errors"] = generated["validation_errors"]
+                result["message"] = "Workflow planned but has validation errors. Review and fix before submission."
+            else:
+                result["message"] = "Workflow planned and saved. Use submit_workflow(workflow_id=...) to execute."
+            
+            if "validation_notes" in generated:
+                result["validation_notes"] = generated["validation_notes"]
+                
             return result
 
         except FileNotFoundError as e:
@@ -482,30 +524,28 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
 
     @mcp.tool(name="submit_workflow")
     async def submit_workflow(
-        workflow_json: Dict[str, Any] = None,
+        workflow_id: Optional[str] = None,
+        workflow_json: Optional[Dict[str, Any]] = None,
         token: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Submit a planned workflow for execution.
+        Submit a planned/validated workflow for execution.
 
-        This tool takes a workflow manifest (typically generated by plan_workflow) and
-        submits it to the workflow engine for execution. The workflow engine will:
-        1. Perform detailed validation
-        2. Schedule and execute workflow steps in sequence
-        3. Handle dependencies between steps
-        4. Track progress and results
+        This tool submits an already-registered workflow by workflow_id. The workflow
+        should come from plan_workflow(), which validates, assigns workflow_id, and
+        persists the workflow as status='planned'.
 
         Args:
-            workflow_json: Complete workflow manifest dictionary (from plan_workflow or manually created)
+            workflow_id: Planned workflow ID (preferred)
+            workflow_json: Optional workflow payload containing workflow_id
             token: Authentication token (optional - will use default if not provided)
 
         Returns:
             Dictionary with:
             - On success:
               {
-                "workflow_id": "wf_123...",  // Unique workflow identifier
+                "workflow_id": "wf_123...",
                 "status": "pending",
-                "workflow_json": {...},      // Submitted workflow with IDs assigned
                 "submitted_at": "2026-02-04T10:30:00Z",
                 "message": "Workflow submitted for execution",
                 "status_url": "http://.../workflows/wf_123/status"
@@ -515,13 +555,12 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
               {
                 "error": "Error description",
                 "errorType": "SUBMISSION_FAILED | VALIDATION_FAILED | ENGINE_UNAVAILABLE",
-                "hint": "Helpful suggestion",
-                "workflow_json": {...}  // Original workflow for reference
+                "hint": "Helpful suggestion"
               }
 
         Notes:
             - The workflow engine must be running and configured for execution
-            - The workflow will be validated by the engine before execution
+            - The workflow must already be validated/registered before submission
             - Use workflow monitoring tools to track execution progress
             - The workflow_id can be used to query status and retrieve results
 
@@ -530,33 +569,30 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             plan = plan_workflow(user_query="Assemble and annotate genome")
 
             # Review the plan, then submit it
-            result = submit_workflow(workflow_json=plan["workflow_json"])
+            result = submit_workflow(workflow_id=plan["workflow_id"])
         """
-        if not workflow_json:
+        if not workflow_id and not workflow_json:
             return {
-                "error": "workflow_json parameter is required",
+                "error": "workflow_id or workflow_json parameter is required",
                 "errorType": "INVALID_PARAMETERS",
-                "hint": "Provide a workflow manifest dictionary (typically from plan_workflow)",
-                "example": "submit_workflow(workflow_json=plan_result['workflow_json'])",
+                "hint": "Provide a planned workflow_id (preferred) or a workflow payload that already contains workflow_id",
+                "example": "submit_workflow(workflow_id='wf_...')",
                 "source": "bvbrc-service"
             }
 
-        # Accept either:
-        # 1) A raw manifest (workflow definition)
-        # 2) The full plan_workflow result wrapper containing {"workflow_json": {...}, ...}
-        workflow_manifest = workflow_json
-        if (
-            isinstance(workflow_json, dict)
-            and isinstance(workflow_json.get('workflow_json'), dict)
-        ):
-            workflow_manifest = workflow_json['workflow_json']
+        if not workflow_id and isinstance(workflow_json, dict):
+            if isinstance(workflow_json.get("workflow_id"), str) and workflow_json.get("workflow_id"):
+                workflow_id = workflow_json["workflow_id"]
+            elif isinstance(workflow_json.get("workflow_json"), dict):
+                nested = workflow_json.get("workflow_json", {})
+                if isinstance(nested.get("workflow_id"), str) and nested.get("workflow_id"):
+                    workflow_id = nested["workflow_id"]
 
-        if not isinstance(workflow_manifest, dict):
+        if not workflow_id:
             return {
-                "workflow_json": workflow_json,
-                "error": "workflow_json must be a dictionary",
+                "error": "submit_workflow requires a registered workflow_id",
                 "errorType": "INVALID_PARAMETERS",
-                "hint": "Pass either a raw workflow manifest or the full plan_workflow response object",
+                "hint": "Run plan_workflow() first and pass the returned workflow_id",
                 "source": "bvbrc-service"
             }
 
@@ -593,7 +629,6 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             # Check if workflow engine is enabled
             if not workflow_engine_config or not workflow_engine_config.get('enabled', False):
                 return {
-                    "workflow_json": workflow_json,
                     "error": "Workflow engine is disabled in configuration",
                     "errorType": "ENGINE_UNAVAILABLE",
                     "hint": "Enable workflow_engine in config.json to submit workflows for execution",
@@ -612,49 +647,35 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             if not is_healthy:
                 print("Workflow engine health check failed", file=sys.stderr)
                 return {
-                    "workflow_json": workflow_json,
                     "error": "Workflow engine is not available",
                     "errorType": "ENGINE_UNAVAILABLE",
                     "hint": f"Ensure workflow engine is running at {engine_url}",
-                    "submission_url": f"{engine_url}/workflows/submit",
+                    "submission_url": f"{engine_url}/workflows/{workflow_id}/submit",
                     "source": "bvbrc-service"
                 }
 
-            # Clean workflow before submission using shared helper used in planning path.
-            # This strips engine-assigned/execution metadata and any wrapper fields
-            # that do not belong to WorkflowDefinition.
-            workflow_for_submission = prepare_workflow_for_engine_validation(workflow_manifest)
+            result = await client.submit_planned_workflow(workflow_id, auth_token)
+            print(f"Workflow submitted successfully: {result.get('workflow_id', workflow_id)}", file=sys.stderr)
 
-            # Submit the workflow
-            print(f"Submitting workflow to {engine_url}...", file=sys.stderr)
-            result = await client.submit_workflow(workflow_for_submission, auth_token)
-
-            print(f"Workflow submitted successfully: {result.get('workflow_id')}", file=sys.stderr)
-
-            # Update the workflow_json with the real workflow_id from the engine
-            # This ensures the returned workflow_json has the actual ID, not any placeholder
-            updated_workflow_json = workflow_for_submission.copy()
-            updated_workflow_json['workflow_id'] = result.get('workflow_id')
-
-            # Also update status and timestamps if available
-            updated_workflow_json['status'] = result.get('status', 'pending')
-            updated_workflow_json['submitted_at'] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-            # Return success response
             return {
-                "workflow_id": result.get('workflow_id'),
+                "workflow_id": result.get('workflow_id', workflow_id),
                 "status": result.get('status', 'pending'),
-                "workflow_json": updated_workflow_json,
                 "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "message": result.get('message', 'Workflow submitted for execution'),
-                "status_url": f"{engine_url}/workflows/{result.get('workflow_id')}/status",
+                "status_url": f"{engine_url}/workflows/{result.get('workflow_id', workflow_id)}/status",
+                "call": {
+                    "tool": "submit_workflow",
+                    "arguments_executed": {
+                        "workflow_id": workflow_id
+                    },
+                    "replayable": True
+                },
                 "source": "bvbrc-service"
             }
 
         except WorkflowEngineError as e:
             print(f"Workflow engine error: {e}", file=sys.stderr)
             return {
-                "workflow_json": workflow_json,
                 "error": str(e),
                 "errorType": e.error_type if hasattr(e, 'error_type') else "SUBMISSION_FAILED",
                 "hint": "The workflow engine rejected the workflow. Check the error message for details.",
@@ -662,7 +683,6 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             }
         except FileNotFoundError as e:
             return {
-                "workflow_json": workflow_json,
                 "error": f"Configuration file not found: {str(e)}",
                 "errorType": "CONFIGURATION_ERROR",
                 "hint": "Ensure config/config.json exists with 'workflow_engine' section",
@@ -672,7 +692,6 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             error_trace = traceback.format_exc()
             print(f"Error in submit_workflow: {error_trace}", file=sys.stderr)
             return {
-                "workflow_json": workflow_json,
                 "error": str(e),
                 "errorType": "UNKNOWN_ERROR",
                 "traceback": error_trace,
