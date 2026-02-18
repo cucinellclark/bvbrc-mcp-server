@@ -501,6 +501,16 @@ async def list_jobs(
             "status": status,
             "sort_by": sort_by,
             "sort_dir": sort_dir,
+            "call": {
+                "tool": "list_jobs",
+                "backend_method": "AppService.enumerate_tasks_filtered",
+                "arguments_executed": {
+                    "offset": offset,
+                    "limit": limit,
+                    "simple_filter": simple_filter
+                },
+                "replayable": True
+            },
             "source": "bvbrc-service",
             "ui_grid": _build_grid_payload(
                 entity_type="job",

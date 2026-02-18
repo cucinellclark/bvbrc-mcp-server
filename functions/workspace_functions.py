@@ -460,6 +460,21 @@ async def workspace_browse(
                         {"key": "size", "label": "Size", "sortable": True}
                     ]
                 )
+            },
+            "call": {
+                "tool": tool_name,
+                "backend_method": "Workspace.ls",
+                "arguments_executed": {
+                    "path": path,
+                    "search": True,
+                    "filename_search_terms": filename_search_terms,
+                    "file_extension": file_extension,
+                    "file_types": file_types,
+                    "sort_by": sort_by,
+                    "sort_order": sort_order,
+                    "num_results": num_results
+                },
+                "replayable": True
             }
         }
 
@@ -515,6 +530,19 @@ async def workspace_browse(
                         {"key": "size", "label": "Size", "sortable": True}
                     ]
                 )
+            },
+            "call": {
+                "tool": tool_name,
+                "backend_method": "Workspace.ls",
+                "arguments_executed": {
+                    "path": path,
+                    "search": False,
+                    "file_types": file_types,
+                    "sort_by": sort_by,
+                    "sort_order": sort_order,
+                    "num_results": num_results
+                },
+                "replayable": True
             }
         }
 
@@ -540,6 +568,15 @@ async def workspace_browse(
                 multi_select=False,
                 sortable=False
             )
+        },
+        "call": {
+            "tool": tool_name,
+            "backend_method": "Workspace.get",
+            "arguments_executed": {
+                "path": path,
+                "search": False
+            },
+            "replayable": True
         }
     }
 
