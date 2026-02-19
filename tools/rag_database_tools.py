@@ -34,18 +34,28 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
         top_k: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Primary tool for BV-BRC usage/how-to/support questions and general questions about BV-BRC capabilities.
-        
+        Search BV-BRC help guides/FAQs and return a short grounded usage answer.
+
+        Use this for "how-to" guidance, feature usage, and support-style questions
+        about the BV-BRC website and applications.
+
         ⚠️ USE THIS TOOL FOR:
-        - General questions about what you can do in BV-BRC (e.g., "What can I do in BV-BRC?", "What features does BV-BRC have?")
-        - Questions about BV-BRC functionality, capabilities, or platform overview
-        - "How do I use a service application?" questions
-        - Workflows, troubleshooting, parameters explained, example runs
-        - BV-BRC pages/features, or documentation needs
-        - Any question asking "what" or "how" about BV-BRC itself (not about specific data)
+        - How to use BV-BRC services, applications, and workflows
+        - FAQ-style questions about platform features and capabilities
+        - Troubleshooting guidance, parameter explanations, and example runs
+        - Questions about BV-BRC website pages, tools, and documentation
+        - General "how does this work?" questions about BV-BRC usage
+
+        🚫 DO NOT USE THIS TOOL FOR:
+        - Authoritative app/service listings (use list_service_apps)
+        - Exact submission parameter schemas for a service (use get_service_submission_schema)
+        - Querying biological records from data collections (use bvbrc_query_collection)
+        - Broad cross-collection record search (use bvbrc_global_data_search)
+        - Retrieving specific biological records or dataset content directly
+        - Workspace file browsing/downloading tasks (use workspace tools)
         
         Args:
-            query: The search query string, typically a user help or troubleshooting question.
+            query: A help-guide or FAQ question about using BV-BRC features.
             top_k: Number of top results to return (uses config default if not provided).
 
         Returns:
@@ -78,13 +88,26 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
                 "source": "bvbrc-rag"
             }
 
-    @mcp.tool()
+    # @mcp.tool()
     def list_publication_datasets(
         query: str,
         top_k: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        List publication datasets relevant to a query using the RAG index.
+        Find publication datasets relevant to a natural-language topic query.
+
+        This tool is intended for publication/dataset discovery semantics
+        (dataset titles/metadata), not direct record retrieval from BV-BRC
+        Solr collections.
+
+        ⚠️ USE THIS TOOL FOR:
+        - "What publication datasets are relevant to X?"
+        - Finding candidate datasets before downstream analysis
+
+        🚫 DO NOT USE THIS TOOL FOR:
+        - Querying primary data collections (use bvbrc_query_collection)
+        - Help/FAQ usage guidance (use helpdesk_service_usage)
+        - Workspace file operations (use workspace tools)
 
         Args:
             query: The search query string, typically describing an analysis or data need.

@@ -5,18 +5,8 @@ This module provides functions for querying and managing RAG (Retrieval-Augmente
 """
 
 from typing import Dict, Any, Optional, List
-import sys
 import time
-import json
-from pathlib import Path
 import requests
-
-# Add rag_api to Python path to enable imports
-_rag_api_path = Path(__file__).parent.parent / "rag_api"
-if str(_rag_api_path) not in sys.path:
-    sys.path.insert(0, str(_rag_api_path))
-
-from app.services.rag_service import get_rag_service
 
 
 def query_rag_helpdesk_func(
@@ -49,16 +39,23 @@ def query_rag_helpdesk_func(
     # Get database name from config, default to 'helpdesk'
     database_name = config.get("database_name", "bvbrc_helpdesk")
     score_threshold = config.get("score_threshold", 0.0)
+    rag_api_base_url = config.get("rag_api_base_url", "http://127.0.0.1:8000")
+    rag_api_timeout_seconds = config.get("rag_api_timeout_seconds", 45)
 
     try:
-        # Get the RAG service and perform the search
-        rag_service = get_rag_service()
-        search_result = rag_service.search(
-            db_name=database_name,
-            query=query,
-            top_k=top_k,
-            score_threshold=score_threshold,
+        query_payload = {
+            "query": query,
+            "top_k": top_k,
+            "score_threshold": score_threshold,
+        }
+        query_url = f"{rag_api_base_url.rstrip('/')}/query/{database_name}"
+        rag_response = requests.post(
+            query_url,
+            json=query_payload,
+            timeout=rag_api_timeout_seconds,
         )
+        rag_response.raise_for_status()
+        search_result = rag_response.json()
 
         # Transform the RAG service response to match expected format
         documents = search_result.get("documents", [])
@@ -76,7 +73,7 @@ def query_rag_helpdesk_func(
             "count": len(results),
             "query": query,
             "index": database_name,
-            "source": "bvbrc-rag"
+            "source": "bvbrc-rag-api",
         }
 
         # Summarize retrieved documents as the final step
@@ -92,6 +89,18 @@ def query_rag_helpdesk_func(
 
         return result
 
+    except requests.RequestException as e:
+        return {
+            "results": [],
+            "count": 0,
+            "query": query,
+            "index": database_name,
+            "summary": "",
+            "used_documents": [],
+            "error": f"RAG API request failed: {str(e)}",
+            "errorType": "RAG_API_REQUEST_ERROR",
+            "source": "bvbrc-rag-api",
+        }
     except Exception as e:
         # Return error result in expected format
         return {
@@ -103,7 +112,7 @@ def query_rag_helpdesk_func(
             "used_documents": [],
             "error": str(e),
             "errorType": "API_ERROR",
-            "source": "bvbrc-rag"
+            "source": "bvbrc-rag-api",
         }
 
 
@@ -152,9 +161,12 @@ def summarize_helpdesk_documents(
         {
             "role": "system",
             "content": (
-                "You are a BV-BRC helpdesk assistant. Provide a concise, actionable "
-                "answer to the user's question based only on the provided documents. "
-                "If information is insufficient, say so briefly."
+                "You are a BV-BRC helpdesk assistant. Answer the user's question "
+                "using only the provided documents. Be highly descriptive and "
+                "specific about the data, features, parameters, outputs, and workflow details "
+                "found in those documents, and explain how each relevant detail "
+                "addresses the user's question. If information is insufficient, "
+                "state what is missing."
             ),
         },
         {
@@ -162,8 +174,10 @@ def summarize_helpdesk_documents(
             "content": (
                 f"User question: {query}\n\n"
                 f"Context documents:\n{prompt_documents}\n\n"
-                "Write a short summary (3-6 sentences or bullet points) that addresses "
-                "the question using only the context above."
+                "Write a detailed grounded summary that directly answers the user's "
+                "question and explains the most relevant document details. Prefer "
+                "clear bullet points when helpful, include concrete values/examples "
+                "from the documents when available, and avoid generic statements."
             ),
         },
     ]

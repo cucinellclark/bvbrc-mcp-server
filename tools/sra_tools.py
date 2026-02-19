@@ -37,6 +37,14 @@ def register_sra_tools(mcp: FastMCP, config: dict = None):
         This tool uses the p3-sra command within a Singularity container to fetch
         metadata for SRA runs. The metadata includes information about the sequencing
         run, library preparation, sample details, and experimental design.
+
+        USE THIS TOOL FOR:
+        - Metadata lookup by known SRA run IDs (e.g., SRR...)
+
+        DO NOT USE THIS TOOL FOR:
+        - Downloading reads or sequence content
+        - General BV-BRC workspace/file operations
+        - Natural-language help/FAQ guidance
         
         Args:
             sra_ids: List of SRA run IDs (e.g., ["SRR37108646", "SRR37108647"])
