@@ -775,50 +775,19 @@ async def workspace_preview_file(api: JsonRpcCaller, path: str, token: str) -> d
     Returns:
         Dictionary containing the preview data (text for text files, base64 for binary files)
     """
-    # Internal byte range parameters - not exposed to user
-    # Default to first 8KB (8192 bytes) for preview - kept below common file save thresholds
+    # Keep preview as a compatibility wrapper around ranged reads.
     PREVIEW_BYTE_RANGE = 8192
-
-    try:
-        download_url_obj = await _get_download_url(api, path, token)
-        download_url = download_url_obj[0][0]
-
-        headers = {
-            "Authorization": token,
-            "Range": f"bytes=0-{PREVIEW_BYTE_RANGE - 1}"
-        }
-
-        async with httpx.AsyncClient() as client:
-            response = await client.get(download_url, headers=headers)
-            # 206 Partial Content is expected for range requests, treat as success
-            if response.status_code not in (200, 206):
-                response.raise_for_status()
-            content = response.content
-
-            # Try to decode as text first
-            try:
-                text_content = content.decode('utf-8')
-                return {
-                    "data": text_content,
-                    "preview_size": len(content),
-                    "is_preview": True,
-                    "source": "bvbrc-workspace"
-                }
-            except UnicodeDecodeError:
-                # If it's binary, encode as base64
-                base64_content = base64.b64encode(content).decode('utf-8')
-                return {
-                    "data": f"<base64_encoded_data>{base64_content}</base64_encoded_data>",
-                    "preview_size": len(content),
-                    "is_preview": True,
-                    "source": "bvbrc-workspace"
-                }
-    except Exception as e:
-        return {
-            "error": f"Error previewing file: {str(e)}",
-            "errorType": "API_ERROR",
-            "source": "bvbrc-workspace"
-        }
+    result = await workspace_read_range(
+        api=api,
+        path=path,
+        token=token,
+        start_byte=0,
+        max_bytes=PREVIEW_BYTE_RANGE
+    )
+    if isinstance(result, dict) and not result.get("error"):
+        result["preview_size"] = result.get("bytes_read", 0)
+        result["is_preview"] = True
+    return result
 
 async def workspace_read_range(api: JsonRpcCaller, path: str, token: str, start_byte: int = 0, max_bytes: int = 8192) -> dict:
     """

@@ -4,7 +4,7 @@ from functions.workspace_functions import (
     workspace_get_file_metadata, workspace_download_file,
     workspace_upload as workspace_upload_func, workspace_create_genome_group,
     workspace_create_feature_group, workspace_get_genome_group_ids, workspace_get_feature_group_ids,
-    workspace_preview_file, workspace_read_range, workspace_browse
+    workspace_read_range, workspace_browse
 )
 from common.json_rpc import JsonRpcCaller
 from common.token_provider import TokenProvider
@@ -281,6 +281,23 @@ def _build_workspace_metadata(workspace_response: dict, resolved_path: str) -> d
         "workspace_path": resolved_path,
     }
 
+def _sanitize_metadata_for_assistant(metadata: dict) -> dict:
+    """Return a user-safe metadata subset for assistant-facing responses."""
+    if not isinstance(metadata, dict):
+        return metadata
+    safe_keys = [
+        "source_type",
+        "source",
+        "name",
+        "size_bytes",
+        "content_type",
+        "is_binary",
+        "created_at",
+        "updated_at",
+        "checksum_sha256",
+    ]
+    return {k: metadata.get(k) for k in safe_keys}
+
 def _resolve_local_file_path(session_id: str, file_id: str, file_utilities_config: Optional[dict]) -> str:
     """Resolve local session file path using configured file_utilities settings."""
     config = file_utilities_config or {}
@@ -376,6 +393,45 @@ def _read_local_file_lines(file_path: str, start: int, end: Optional[int], limit
         "source": "bvbrc-workspace"
     }
 
+def _read_local_file_byte_range(file_path: str, start_byte: int, max_bytes: int) -> dict:
+    """Read byte range from a local file and normalize output to workspace range shape."""
+    if start_byte < 0:
+        return {
+            "error": True,
+            "errorType": "INVALID_PARAMETERS",
+            "message": "start_byte must be >= 0",
+            "source": "bvbrc-workspace"
+        }
+
+    if max_bytes <= 0:
+        return {
+            "error": True,
+            "errorType": "INVALID_PARAMETERS",
+            "message": "max_bytes must be > 0",
+            "source": "bvbrc-workspace"
+        }
+
+    max_bytes = min(max_bytes, 1024 * 1024)
+    with open(file_path, "rb") as f:
+        f.seek(start_byte)
+        chunk = f.read(max_bytes)
+
+    try:
+        data = chunk.decode("utf-8")
+    except UnicodeDecodeError:
+        base64_content = base64.b64encode(chunk).decode("utf-8")
+        data = f"<base64_encoded_data>{base64_content}</base64_encoded_data>"
+
+    return {
+        "data": data,
+        "start_byte": start_byte,
+        "bytes_read": len(chunk),
+        "requested_max_bytes": max_bytes,
+        "next_start_byte": start_byte + len(chunk),
+        "source_type": "local",
+        "source": "bvbrc-workspace"
+    }
+
 def register_workspace_tools(
     mcp: FastMCP,
     api: JsonRpcCaller,
@@ -431,7 +487,7 @@ def register_workspace_tools(
             num_results: Maximum number of results to return. Defaults to 50.
 
         DO NOT USE THIS TOOL FOR:
-            - File content retrieval (use workspace_preview_file_tool or workspace_read_range_tool)
+            - File content retrieval (use read_file_bytes_tool)
             - Detailed single-file metadata inspection (use get_file_metadata)
         """
         auth_token = token_provider.get_token(token)
@@ -467,12 +523,14 @@ def register_workspace_tools(
             tool_name="workspace_browse_tool"
         )
 
-    @mcp.tool(annotations={"readOnlyHint": True})
+    # LEAVE HERE FOR NOW, DO NOT REMOVE
+    #@mcp.tool(annotations={"readOnlyHint": True})
     async def get_file_metadata(
         token: Optional[str] = None,
         path: Optional[str] = None,
         session_id: Optional[str] = None,
-        file_id: Optional[str] = None
+        file_id: Optional[str] = None,
+        include_internal_fields: bool = False
     ) -> dict:
         """Get normalized metadata for one file (workspace path or local session file).
 
@@ -483,7 +541,12 @@ def register_workspace_tools(
 
         DO NOT USE THIS TOOL FOR:
         - Listing directories or searching for files (use workspace_browse_tool)
-        - Reading file content bytes/text (use preview_file/workspace_preview_file_tool/workspace_read_range_tool/read_file_lines)
+        - Reading file content bytes/text (use read_file_bytes_tool/read_file_lines)
+
+        Response behavior:
+        - By default this tool returns user-safe metadata only.
+        - Internal identifiers/paths (e.g. session_id, file_id, absolute path, workspace_path)
+          are excluded unless include_internal_fields=True.
         """
         # Local session-file mode
         if session_id and file_id:
@@ -497,7 +560,13 @@ def register_workspace_tools(
                         "details": {"session_id": session_id, "file_id": file_id},
                         "source": "bvbrc-workspace"
                     }
-                return _build_local_metadata(file_path, session_id=session_id, file_id=file_id, registry_record=record)
+                metadata = _build_local_metadata(
+                    file_path,
+                    session_id=session_id,
+                    file_id=file_id,
+                    registry_record=record
+                )
+                return metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
             except Exception as e:
                 return {
                     "error": f"Error getting local file metadata: {str(e)}",
@@ -529,7 +598,8 @@ def register_workspace_tools(
                     "source": "bvbrc-workspace"
                 }
             try:
-                return _build_local_metadata(path)
+                metadata = _build_local_metadata(path)
+                return metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
             except Exception as e:
                 return {
                     "error": f"Error getting local file metadata: {str(e)}",
@@ -553,7 +623,8 @@ def register_workspace_tools(
         result = await workspace_get_file_metadata(api, resolved_path, auth_token)
         if "error" in result:
             return result
-        return _build_workspace_metadata(result, resolved_path)
+        metadata = _build_workspace_metadata(result, resolved_path)
+        return metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
 
     @mcp.tool()
     async def workspace_download_file_tool(token: Optional[str] = None, path: str = None, output_file: Optional[str] = None, return_data: bool = False) -> dict:
@@ -586,136 +657,128 @@ def register_workspace_tools(
         result = await workspace_download_file(api, resolved_path, auth_token, output_file, return_data)
         return result
 
-    @mcp.tool(annotations={"readOnlyHint": True})
-    async def workspace_preview_file_tool(token: Optional[str] = None, path: str = None) -> dict:
-        """Preview the beginning of a workspace file (quick content peek).
-        
-        This tool downloads a preview of the file (first portion) without downloading the entire file.
-        Useful for quickly viewing the beginning of large files.
-        Use workspace_read_range_tool for explicit byte-range paging.
-
-        Args:
-            token: Authentication token (optional - will use default if not provided)
-            path: Path to the file to preview (relative to user's home directory).
-        """
-        # Get the appropriate token
-        auth_token = token_provider.get_token(token)
-        if not auth_token:
-            return {
-                "error": "No authentication token available",
-                "errorType": "AUTHENTICATION_ERROR",
-                "source": "bvbrc-workspace"
-            }
-
-        # Extract user_id from token for path resolution and logging
-        user_id = extract_userid_from_token(auth_token)
-        resolved_path = resolve_relative_path(path, user_id)
-
-        print(f"Previewing file from path: {resolved_path}, user_id: {user_id}")
-
-        result = await workspace_preview_file(api, resolved_path, auth_token)
-        return result
-
-    @mcp.tool(annotations={"readOnlyHint": True})
-    async def workspace_read_range_tool(
+    @mcp.tool(name="read_file_bytes_tool", annotations={"readOnlyHint": True})
+    async def read_file_bytes_tool(
         token: Optional[str] = None,
-        path: str = None,
+        path: Optional[str] = None,
+        session_id: Optional[str] = None,
+        file_id: Optional[str] = None,
         start_byte: int = 0,
         max_bytes: int = 8192
     ) -> dict:
-        """Read an explicit byte range from a workspace file.
+        """Read a byte window from local session files or workspace files.
 
-        Use this tool to page through large files safely by changing start_byte.
-        This is the precise paging variant of workspace_preview_file_tool.
+        This is the canonical tool for file-byte access:
+        - For quick preview, use defaults (start_byte=0, max_bytes=8192)
+        - For paging, increase start_byte to read the next window
+        - For local session files, provide session_id + file_id
+        - For workspace files, provide path (with token if needed)
 
         Args:
             token: Authentication token (optional - will use default if not provided)
-            path: Path to the file to read (relative to user's home directory).
+            path: Workspace path (or absolute local path under configured session_base_path).
+            session_id: Local Copilot session ID (use with file_id for local reads).
+            file_id: Local Copilot file ID (use with session_id for local reads).
             start_byte: Zero-based starting byte offset (default: 0).
             max_bytes: Maximum bytes to read (default: 8192, max: 1048576).
         """
-        auth_token = token_provider.get_token(token)
-        if not auth_token:
-            return {
-                "error": "No authentication token available",
-                "errorType": "AUTHENTICATION_ERROR",
-                "source": "bvbrc-workspace"
-            }
-
-        user_id = extract_userid_from_token(auth_token)
-        resolved_path = resolve_relative_path(path, user_id)
-
-        print(
-            f"Reading workspace file range from path: {resolved_path}, user_id: {user_id}, "
-            f"start_byte: {start_byte}, max_bytes: {max_bytes}"
-        )
-
-        return await workspace_read_range(
-            api=api,
-            path=resolved_path,
-            token=auth_token,
-            start_byte=start_byte,
-            max_bytes=max_bytes
-        )
-
-    @mcp.tool(annotations={"readOnlyHint": True})
-    def preview_file(
-        session_id: str,
-        file_id: str,
-        start_byte: int = 0,
-        max_bytes: int = 8192
-    ) -> dict:
-        """Preview a byte range from a local Copilot session file.
-
-        Use this for session-local files identified by (session_id, file_id).
-        Do not use for workspace paths; use workspace_preview_file_tool instead.
-        """
-        print(f"Getting preview of local file {file_id} in session {session_id}...", file=sys.stderr)
         try:
-            if not session_id or not file_id:
+            if session_id or file_id:
+                if not session_id or not file_id:
+                    return {
+                        "error": True,
+                        "errorType": "INVALID_PARAMETERS",
+                        "message": "Provide both session_id and file_id for local file reads",
+                        "source": "bvbrc-workspace"
+                    }
+
+                print(
+                    f"Reading local file bytes from session file {file_id} in session {session_id}: "
+                    f"start_byte={start_byte}, max_bytes={max_bytes}",
+                    file=sys.stderr
+                )
+                file_path = _resolve_local_file_path(session_id, file_id, file_utilities_config)
+                if not os.path.exists(file_path):
+                    return {
+                        "error": True,
+                        "errorType": "FILE_NOT_FOUND",
+                        "message": f"File {file_id} not found",
+                        "details": {"fileId": file_id, "session_id": session_id},
+                        "source": "bvbrc-workspace"
+                    }
+
+                result = _read_local_file_byte_range(file_path, start_byte, max_bytes)
+                if result.get("error"):
+                    return result
+                result["session_id"] = session_id
+                result["file_id"] = file_id
+                return result
+
+            if not path:
                 return {
                     "error": True,
                     "errorType": "INVALID_PARAMETERS",
-                    "message": "Missing required parameters: session_id and file_id",
+                    "message": "Provide either (session_id and file_id) or path",
                     "source": "bvbrc-workspace"
                 }
 
-            if start_byte < 0:
+            # Local absolute-path mode (restricted to configured session_base_path)
+            if os.path.isabs(path) and os.path.exists(path):
+                base_path = (file_utilities_config or {}).get("session_base_path")
+                if not base_path:
+                    return {
+                        "error": True,
+                        "errorType": "INVALID_PARAMETERS",
+                        "message": "Local path reads require file_utilities.session_base_path to be configured",
+                        "source": "bvbrc-workspace"
+                    }
+                if not _is_within_base_path(path, base_path):
+                    return {
+                        "error": True,
+                        "errorType": "INVALID_PARAMETERS",
+                        "message": "Local path is outside configured session base path",
+                        "details": {"path": path},
+                        "source": "bvbrc-workspace"
+                    }
+
+                print(
+                    f"Reading local file bytes from path: {path}, start_byte={start_byte}, max_bytes={max_bytes}",
+                    file=sys.stderr
+                )
+                return _read_local_file_byte_range(path, start_byte, max_bytes)
+
+            auth_token = token_provider.get_token(token)
+            if not auth_token:
                 return {
-                    "error": True,
-                    "errorType": "INVALID_PARAMETERS",
-                    "message": "start_byte must be >= 0",
+                    "error": "No authentication token available",
+                    "errorType": "AUTHENTICATION_ERROR",
                     "source": "bvbrc-workspace"
                 }
 
-            if max_bytes <= 0:
-                return {
-                    "error": True,
-                    "errorType": "INVALID_PARAMETERS",
-                    "message": "max_bytes must be > 0",
-                    "source": "bvbrc-workspace"
-                }
+            user_id = extract_userid_from_token(auth_token)
+            resolved_path = resolve_relative_path(path, user_id)
 
-            max_bytes = min(max_bytes, 1024 * 1024)
-            file_path = _resolve_local_file_path(session_id, file_id, file_utilities_config)
+            print(
+                f"Reading workspace file bytes from path: {resolved_path}, user_id: {user_id}, "
+                f"start_byte: {start_byte}, max_bytes: {max_bytes}"
+            )
 
-            with open(file_path, "rb") as f:
-                f.seek(start_byte)
-                chunk = f.read(max_bytes)
-
-            try:
-                return {"content": chunk.decode("utf-8"), "source": "bvbrc-workspace"}
-            except UnicodeDecodeError:
-                base64_content = base64.b64encode(chunk).decode("utf-8")
-                return {
-                    "content": f"<base64_encoded_data>{base64_content}</base64_encoded_data>",
-                    "source": "bvbrc-workspace"
-                }
+            result = await workspace_read_range(
+                api=api,
+                path=resolved_path,
+                token=auth_token,
+                start_byte=start_byte,
+                max_bytes=max_bytes
+            )
+            if isinstance(result, dict):
+                result.setdefault("source_type", "workspace")
+                result.setdefault("workspace_path", resolved_path)
+            return result
         except Exception as e:
             return {
                 "error": True,
                 "errorType": "PROCESSING_ERROR",
-                "message": f"Error getting file preview: {str(e)}",
+                "message": f"Error reading file bytes: {str(e)}",
                 "source": "bvbrc-workspace"
             }
 
@@ -730,7 +793,7 @@ def register_workspace_tools(
         """Read line ranges from a local Copilot session file.
 
         Use this for structured/text line access in session-local files.
-        Do not use for workspace paths; use workspace_read_range_tool for workspace files.
+        Do not use for workspace byte paging; use read_file_bytes_tool.
         """
         print(
             f"Reading lines from local file {file_id} in session {session_id}: start={start}, end={end}, limit={limit}",
