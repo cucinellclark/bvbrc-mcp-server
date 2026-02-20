@@ -15,6 +15,7 @@ Rules:
 7. Ignore common conversational words like "from", "the", "a", "an", "in", "on", "at", "to", "for", "with", "by", etc.
 8. Base your collection selection only on meaningful scientific keywords and entities.
 9. ID interpretation rule: values matching pattern fig|XXXXXXX.X.peg.X are PATRIC feature IDs (patric_id), i.e. unique genome_feature identifiers; do not interpret these as accession IDs.
+10. Treat counting language as intent-only phrasing, not collection-discriminating content. Ignore phrases like "how many", "number of", "total", "count", "counts", "how much", and choose the collection based on the biological entity being counted.
 
 Output format:
 {

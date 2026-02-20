@@ -113,7 +113,7 @@ STOPWORDS = {
 
 # Custom domain-specific stopwords to exclude
 CUSTOM_STOPWORDS = {
-    "genomes", "genome", "subtype", "year", "id", "summary"
+    "genomes", "genome", "subtype", "year", "id", "summary", "bv-brc"
 }
 
 
@@ -160,12 +160,49 @@ def _quote_solr_term(term: str) -> str:
     return f'"{escaped}"'
 
 
+def _is_count_only_query(user_query: str) -> bool:
+    """
+    Detect explicit count-intent phrasing in natural-language global search queries.
+    """
+    text = str(user_query or "").strip().lower()
+    if not text:
+        return False
+    count_patterns = [
+        r"^\s*how\s+many\b",
+        r"\bnumber\s+of\b",
+        r"\btotal\s+number\s+of\b",
+        r"\bcount\s+of\b",
+        r"^\s*count\b",
+    ]
+    return any(re.search(pattern, text) for pattern in count_patterns)
+
+
+def _strip_count_only_intent_text(user_query: str) -> str:
+    """
+    Remove common count-intent phrasing so keyword extraction focuses on entities.
+    """
+    text = str(user_query or "").strip()
+    if not text:
+        return text
+    normalized = re.sub(r"^\s*how\s+many\s+", "", text, flags=re.IGNORECASE)
+    normalized = re.sub(r"\b(total\s+)?number\s+of\s+", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bcount\s+of\s+", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"^\s*count\s+", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+\b(are|is|there)\b\s*\??\s*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+", " ", normalized).strip(" ?.")
+    return normalized
+
+
 def _build_global_search_q_expr(user_query: str) -> Dict[str, Any]:
     """
     Build a Solr q expression from natural language for AND keyword mode.
     Returns dict containing q_expr and parsed keywords for transparency.
     """
-    keywords = _tokenize_keywords(user_query)
+    count_only = _is_count_only_query(user_query)
+    keyword_source = _strip_count_only_intent_text(user_query) if count_only else user_query
+    keywords = _tokenize_keywords(keyword_source)
+    if not keywords and keyword_source != user_query:
+        keywords = _tokenize_keywords(user_query)
     if not keywords:
         raise ValueError("Could not parse keywords from user_query")
 
@@ -174,14 +211,16 @@ def _build_global_search_q_expr(user_query: str) -> Dict[str, Any]:
         return {
             "q_expr": _quote_solr_term(keywords[0]),
             "keywords": keywords,
-            "searchMode": "and"
+            "searchMode": "and",
+            "countOnly": count_only
         }
 
     q_expr = "(" + " AND ".join(_quote_solr_term(term) for term in keywords) + ")"
     return {
         "q_expr": q_expr,
         "keywords": keywords,
-        "searchMode": "and"
+        "searchMode": "and",
+        "countOnly": count_only
     }
 
 
@@ -590,6 +629,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
     async def bvbrc_search_data(
         user_query: str,
         advanced: bool = False,
+        count: bool = False,
         cancel_token: Optional[str] = None,
         stream: bool = False,
         token: Optional[str] = None,
@@ -601,6 +641,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         Default behavior (`advanced=False`) is exploratory global search:
         - Select a likely collection with internal LLM routing
         - Execute a q= search using AND semantics
+        - If count=True, return only the matching total
 
         Advanced behavior (`advanced=True`) is targeted retrieval:
         - Plan a structured query from user_query
@@ -610,6 +651,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         Args:
             user_query: Natural language query text or keyword list.
             advanced: False (default) for global discovery; True for targeted structured query execution.
+            count: If True, return only the count for the planner-selected query.
             cancel_token: Internal cancellation token (set by API, not user-facing).
             stream: Internal transport flag used by API/MCP streaming pipeline.
             token: Authentication token (optional, auto-detected if token_provider is configured).
@@ -640,6 +682,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 search_info = _build_global_search_q_expr(query_text)
                 llm_client = _get_llm_client()
                 selection = select_collection_for_query(query_text, llm_client)
+                print(f"[bvbrc_search_data] Planning output (global mode): {json.dumps(selection, indent=2)}")
                 collection = str(selection.get("collection", "")).strip()
                 if not collection:
                     return {
@@ -654,6 +697,35 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                     q_expr = f"({q_expr}) AND patric_id:*"
 
                 headers = _build_auth_headers(token)
+                count_only = bool(count)
+                if count_only:
+                    count_result = await query_direct(
+                        core=collection,
+                        filter_str=q_expr,
+                        options={},
+                        base_url=_base_url,
+                        headers=headers,
+                        cursorId="*",
+                        countOnly=True,
+                        batch_size=CURSOR_BATCH_SIZE
+                    )
+                    count_value = int(count_result.get("numFound", 0) or 0)
+                    return {
+                        "value": count_value,
+                        "count": count_value,
+                        "numFound": count_value,
+                        "countOnly": True,
+                        "collection": collection,
+                        "selection": selection,
+                        "searchMode": search_info.get("searchMode"),
+                        "keywords": search_info.get("keywords", []),
+                        "q": q_expr,
+                        "rql_query": _build_rql_keyword_query(search_info.get("keywords", [])),
+                        "mode": "global",
+                        "data_api_base_url": _base_url,
+                        "source": "bvbrc-mcp-data"
+                    }
+
                 # Global mode should paginate through all cursor pages, mirroring
                 # the "return all matching results" behavior used elsewhere.
                 cursor = "*"
@@ -757,6 +829,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         try:
             llm_client = _get_llm_client()
             planning_result = create_query_plan_internal(query_text, llm_client)
+            print(f"[bvbrc_search_data] Planning output (advanced mode): {json.dumps(planning_result, indent=2)}")
             if "error" in planning_result:
                 return {
                     "error": planning_result.get("error"),
