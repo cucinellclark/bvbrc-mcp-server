@@ -605,22 +605,23 @@ Return ONLY a JSON object with:
 - select
 - sort
 - batchSize
-- num_results (optional integer: total limit on results across all pages)
 - countOnly
 - format
 - sequence_response_mode (enum: "none", "genome_feature_dna_fasta", "genome_feature_protein_fasta")
 - assumptions (optional list)
 - questions_for_user (optional list)
 
+DO NOT include num_results in your output.
+
 Constraints:
 - Use only this collection: {collection}
 - No multi-step or cross-collection planning
 - Use structured filters, never raw Solr syntax
 - Keep select concise and relevant
-- If user wants a specific number of results, set num_results to that limit
 - Default sequence_response_mode to "none"
 - Use sequence_response_mode="genome_feature_dna_fasta" when user asks for nucleotide/DNA FASTA sequences from genome_feature
-- Use sequence_response_mode="genome_feature_protein_fasta" when user asks for amino acid/protein FASTA sequences from genome_feature"""
+- Use sequence_response_mode="genome_feature_protein_fasta" when user asks for amino acid/protein FASTA sequences from genome_feature
+- Ignore any user requests for result size limits (e.g., "top 10", "first 5", "limit to N")"""
 
     if validation_error:
         user_prompt += f"""

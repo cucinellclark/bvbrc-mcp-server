@@ -13,6 +13,7 @@ Important constraints:
 7. If the query is ambiguous, include clarifying questions in "questions_for_user".
 8. Output valid JSON only (no markdown, no prose outside JSON).
 9. ID interpretation rule: if a value matches fig|XXXXXXX.X.peg.X, treat it as a patric_id (unique genome_feature ID), not as an accession field value.
+10. NEVER set num_results in your output. The system will return all matching results without limits. Ignore any user requests for result size limits like "top 10", "first 5", "limit to N", etc.
 
 Output JSON shape:
 {

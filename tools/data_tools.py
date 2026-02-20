@@ -120,7 +120,7 @@ CUSTOM_STOPWORDS = {
 def _tokenize_keywords(text: str) -> List[str]:
     """
     Convert a natural-language query into search terms for keyword mode.
-    Supports comma-separated phrases and fallback token splitting.
+    Supports comma-separated groups and fallback token splitting.
     Filters out common stopwords and custom stopwords.
     """
     if not text:
@@ -129,20 +129,29 @@ def _tokenize_keywords(text: str) -> List[str]:
     # Combine all stopwords
     all_stopwords = STOPWORDS | CUSTOM_STOPWORDS
 
-    # Prefer comma-separated terms if present (allows multi-word keywords naturally).
+    def _clean_non_stopword_terms(raw_text: str) -> List[str]:
+        parts = re.split(r"\s+", raw_text.strip())
+        terms: List[str] = []
+        for part in parts:
+            cleaned = re.sub(r"^[^\w]+|[^\w]+$", "", part)
+            if cleaned and cleaned.lower() not in all_stopwords:
+                terms.append(cleaned)
+        return terms
+
+    # Prefer comma-separated groups if present; still apply stopword filtering.
     if "," in text:
-        parts = [part.strip() for part in text.split(",")]
-        return [part for part in parts if part]
+        groups = [group.strip() for group in text.split(",")]
+        terms: List[str] = []
+        for group in groups:
+            if not group:
+                continue
+            filtered_group_terms = _clean_non_stopword_terms(group)
+            if filtered_group_terms:
+                terms.append(" ".join(filtered_group_terms))
+        return terms
 
     # Otherwise split on whitespace and strip punctuation.
-    parts = re.split(r"\s+", text.strip())
-    terms: List[str] = []
-    for part in parts:
-        cleaned = re.sub(r"^[^\w]+|[^\w]+$", "", part)
-        # Filter out stopwords (case-insensitive)
-        if cleaned and cleaned.lower() not in all_stopwords:
-            terms.append(cleaned)
-    return terms
+    return _clean_non_stopword_terms(text)
 
 
 def _quote_solr_term(term: str) -> str:
@@ -151,41 +160,39 @@ def _quote_solr_term(term: str) -> str:
     return f'"{escaped}"'
 
 
-def _build_global_search_q_expr(user_query: str, search_mode: str) -> Dict[str, Any]:
+def _build_global_search_q_expr(user_query: str) -> Dict[str, Any]:
     """
-    Build a Solr q expression from natural language for phrase/and/or modes.
+    Build a Solr q expression from natural language for AND keyword mode.
     Returns dict containing q_expr and parsed keywords for transparency.
     """
-    normalized_mode = (search_mode or "phrase").strip().lower()
-    if normalized_mode not in {"phrase", "and", "or"}:
-        raise ValueError("search_mode must be one of: phrase, and, or")
-
-    if normalized_mode == "phrase":
-        return {
-            "q_expr": _quote_solr_term(user_query.strip()),
-            "keywords": [user_query.strip()],
-            "searchMode": "phrase"
-        }
-
     keywords = _tokenize_keywords(user_query)
     if not keywords:
         raise ValueError("Could not parse keywords from user_query")
-    
-    # If only one keyword, treat it as a phrase search (single-term search)
+
+    # Single keyword still uses quoted term matching.
     if len(keywords) == 1:
         return {
             "q_expr": _quote_solr_term(keywords[0]),
             "keywords": keywords,
-            "searchMode": normalized_mode
+            "searchMode": "and"
         }
 
-    joiner = " AND " if normalized_mode == "and" else " OR "
-    q_expr = "(" + joiner.join(_quote_solr_term(term) for term in keywords) + ")"
+    q_expr = "(" + " AND ".join(_quote_solr_term(term) for term in keywords) + ")"
     return {
         "q_expr": q_expr,
         "keywords": keywords,
-        "searchMode": normalized_mode
+        "searchMode": "and"
     }
+
+
+def _build_rql_keyword_query(keywords: List[str]) -> str:
+    """
+    Build an RQL keyword query that mirrors the sanitized keyword intent.
+    Do not include paging controls; replay clients can apply them separately.
+    """
+    keyword_text = " ".join(str(term).strip() for term in (keywords or []) if str(term).strip())
+    safe_keyword_text = keyword_text.replace(")", "\\)")
+    return f"keyword({safe_keyword_text})"
 
 
 def convert_json_to_tsv(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -630,7 +637,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 }
 
             try:
-                search_info = _build_global_search_q_expr(query_text, "and")
+                search_info = _build_global_search_q_expr(query_text)
                 llm_client = _get_llm_client()
                 selection = select_collection_for_query(query_text, llm_client)
                 collection = str(selection.get("collection", "")).strip()
@@ -647,19 +654,70 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                     q_expr = f"({q_expr}) AND patric_id:*"
 
                 headers = _build_auth_headers(token)
-                result = await query_direct(
-                    core=collection,
-                    filter_str=q_expr,
-                    options={},
-                    base_url=_base_url,
-                    headers=headers,
-                    cursorId=None,
-                    countOnly=False,
-                    batch_size=CURSOR_BATCH_SIZE
-                )
+                # Global mode should paginate through all cursor pages, mirroring
+                # the "return all matching results" behavior used elsewhere.
+                cursor = "*"
+                merged_results: List[Dict[str, Any]] = []
+                total_num_found: Optional[int] = None
+                total_batches = 0
+
+                while cursor:
+                    if _is_download_cancelled(normalized_cancel_token):
+                        return {
+                            "error": "Data download cancelled.",
+                            "errorType": "CANCELLED",
+                            "cancelled": True,
+                            "count": len(merged_results),
+                            "numFound": total_num_found if total_num_found is not None else len(merged_results),
+                            "source": "bvbrc-mcp-data"
+                        }
+
+                    page_result = await query_direct(
+                        core=collection,
+                        filter_str=q_expr,
+                        options={},
+                        base_url=_base_url,
+                        headers=headers,
+                        cursorId=cursor,
+                        countOnly=False,
+                        batch_size=CURSOR_BATCH_SIZE
+                    )
+                    page_results = page_result.get("results", [])
+                    if not page_results:
+                        break
+
+                    merged_results.extend(page_results)
+                    total_num_found = page_result.get("numFound", total_num_found)
+                    total_batches += 1
+                    if ctx is not None:
+                        await ctx.report_progress(
+                            progress=float(len(merged_results)),
+                            total=float(total_num_found) if total_num_found is not None else None,
+                            message=(
+                                f"Fetched {len(merged_results)} records"
+                                f" (batch {total_batches}, collection={collection})"
+                            )
+                        )
+
+                    next_cursor = page_result.get("nextCursorId")
+                    if not next_cursor:
+                        break
+                    cursor = next_cursor
+
+                result = {
+                    "results": merged_results,
+                    "count": len(merged_results),
+                    "numFound": total_num_found if total_num_found is not None else len(merged_results),
+                    "nextCursorId": None,
+                    "_paginationInfo": {
+                        "totalBatches": total_batches,
+                        "batchSize": CURSOR_BATCH_SIZE
+                    }
+                }
 
                 conversion_result = convert_json_to_tsv(result.get("results", []))
                 if "error" in conversion_result:
+                    rql_query = _build_rql_keyword_query(search_info.get("keywords", []))
                     return {
                         "error": conversion_result["error"],
                         "hint": conversion_result.get("hint", ""),
@@ -668,6 +726,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         "searchMode": search_info.get("searchMode"),
                         "keywords": search_info.get("keywords", []),
                         "q": q_expr,
+                        "rql_query": rql_query,
                         "results": result.get("results", []),
                         "count": result.get("count"),
                         "numFound": result.get("numFound"),
@@ -682,6 +741,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 result["searchMode"] = search_info.get("searchMode")
                 result["keywords"] = search_info.get("keywords", [])
                 result["q"] = q_expr
+                result["rql_query"] = _build_rql_keyword_query(search_info.get("keywords", []))
                 result["mode"] = "global"
                 result["data_api_base_url"] = _base_url
                 result["source"] = "bvbrc-mcp-data"
