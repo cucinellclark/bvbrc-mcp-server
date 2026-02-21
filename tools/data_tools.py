@@ -117,7 +117,7 @@ STOPWORDS = {
     "being", "have", "has", "had", "do", "does", "did", "will", "would", 
     "should", "could", "may", "might", "must", "can", "this", "that", 
     "these", "those", "i", "you", "he", "she", "it", "we", "they", "what",
-    "which", "who", "when", "where", "why", "how"
+    "which", "who", "when", "where", "why", "how", "count", "counts", "total", "number"
 }
 
 # Custom domain-specific stopwords to exclude
