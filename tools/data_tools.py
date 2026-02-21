@@ -10,7 +10,7 @@ import subprocess
 import os
 import re
 import tempfile
-from urllib.parse import unquote_plus
+from urllib.parse import quote, unquote_plus
 from typing import Optional, Dict, Any, List
 
 from fastmcp import FastMCP, Context
@@ -122,7 +122,8 @@ STOPWORDS = {
 
 # Custom domain-specific stopwords to exclude
 CUSTOM_STOPWORDS = {
-    "genomes", "genome", "subtype", "year", "id", "summary", "bv-brc", "taxa", "bvbrc"
+    "genomes", "genome", "subtype", "year", "id", "summary", "bv-brc", "taxa", "bvbrc",
+    "describe","feature"
 }
 
 
@@ -254,6 +255,30 @@ def _build_rql_keyword_query(keywords: List[str]) -> str:
     keyword_text = " ".join(str(term).strip() for term in normalized_keywords if str(term).strip())
     safe_keyword_text = keyword_text.replace(")", "\\)")
     return f"keyword({safe_keyword_text})"
+
+
+def _looks_like_patric_feature_id(value: str) -> bool:
+    """
+    Detect canonical PATRIC genome_feature IDs:
+    fig|<genome_id>.peg.<feature_number>
+    """
+    return bool(re.match(r"^fig\|\d+\.\d+\.peg\.\d+$", str(value or "").strip(), re.IGNORECASE))
+
+
+def _escape_rql_value(value: str) -> str:
+    """Escape RQL value delimiters used inside function argument lists."""
+    text = str(value or "")
+    return text.replace("\\", "\\\\").replace(",", "\\,").replace(")", "\\)")
+
+
+def _build_rql_replay_query(rql_query: str, limit: int = 100) -> str:
+    """
+    Build a URL-safe RQL replay string for BV-BRC links.
+    Encodes reserved characters in term values (e.g., '|' -> %7C)
+    while preserving RQL structural tokens.
+    """
+    encoded_rql = quote(str(rql_query or ""), safe="(),:*")
+    return f"?{encoded_rql}&limit({int(limit)})"
 
 
 def convert_json_to_tsv(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -704,14 +729,12 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 search_info = _build_global_search_q_expr(query_text)
                 sanitized_keywords = _tokenize_keywords(", ".join(search_info.get("keywords", [])))
                 rql_query = _build_rql_keyword_query(sanitized_keywords)
-                rql_replay_query = f"?{rql_query}&limit(100)"
                 print(
                     "[bvbrc_search_data:rql] "
                     f"query='{_clip_log_text(query_text)}' "
                     f"raw_keywords={search_info.get('keywords', [])} "
                     f"sanitized_keywords={sanitized_keywords} "
-                    f"rql='{rql_query}' "
-                    f"replay='{rql_replay_query}'"
+                    f"rql='{rql_query}'"
                 )
                 llm_client = _get_llm_client()
                 selection = select_collection_for_query(query_text, llm_client)
@@ -727,7 +750,21 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
 
                 q_expr = str(search_info.get("q_expr", "")).strip() or "*:*"
                 if collection == "genome_feature":
+                    # Keep replayable RQL semantically aligned with Solr behavior for
+                    # canonical PATRIC feature IDs (fig|...peg...): exact field match.
+                    if len(sanitized_keywords) == 1 and _looks_like_patric_feature_id(sanitized_keywords[0]):
+                        escaped_id = _escape_rql_value(sanitized_keywords[0])
+                        rql_query = f"and(eq(annotation,PATRIC),eq(patric_id,{escaped_id}))"
+                    else:
+                        rql_query = f"and(eq(annotation,PATRIC),{rql_query})"
                     q_expr = f"({q_expr}) AND patric_id:*"
+                rql_replay_query = _build_rql_replay_query(rql_query, limit=100)
+                print(
+                    "[bvbrc_search_data:rql_replay] "
+                    f"collection='{collection}' "
+                    f"rql='{rql_query}' "
+                    f"replay='{rql_replay_query}'"
+                )
 
                 headers = _build_auth_headers(token)
                 count_only = bool(count)
