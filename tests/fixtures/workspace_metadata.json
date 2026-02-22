@@ -1,0 +1,26 @@
+{
+  "source": "bvbrc-workspace",
+  "mode": "file_metadata",
+  "data": {
+    "name": "example.tsv",
+    "path": "/user/home/example.tsv",
+    "size": 1024
+  },
+  "format": "json",
+  "count": 0,
+  "numFound": 0,
+  "status": "success",
+  "correlation": {
+    "requestId": null,
+    "requestCorrelationId": null,
+    "pageCorrelationId": null,
+    "batchNumber": null
+  },
+  "pagination": {
+    "nextCursorId": null,
+    "hasMore": false,
+    "totalBatches": 0
+  },
+  "replay": null,
+  "error": null
+}

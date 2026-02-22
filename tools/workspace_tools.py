@@ -17,6 +17,7 @@ import base64
 import mimetypes
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
+from common.canonical_result_schema import build_canonical_result, validate_canonical_result
 
 _file_registry_client: Optional[MongoClient] = None
 SUPPORTED_WORKSPACE_TYPES = [
@@ -178,6 +179,44 @@ def resolve_relative_path(path: str, user_id: str) -> str:
     else:
         # Treat as relative to home directory
         return f"{home_path}/{path}"
+
+def _sanitize_workspace_browse_path(path: Optional[str], user_id: Optional[str]) -> Optional[str]:
+    """Clean common LLM path placeholders for workspace browsing."""
+    if path is None:
+        return None
+
+    cleaned = path.strip()
+    if not cleaned:
+        return None
+
+    is_absolute = cleaned.startswith("/")
+    segments = [segment for segment in cleaned.split("/") if segment]
+
+    # Remove placeholder segments literally named "user_id".
+    segments = [segment for segment in segments if segment != "user_id"]
+
+    # Collapse duplicate adjacent "home" segments.
+    collapsed = []
+    for segment in segments:
+        if segment == "home" and collapsed and collapsed[-1] == "home":
+            continue
+        collapsed.append(segment)
+    segments = collapsed
+
+    if not segments:
+        return None
+
+    # If placeholder cleanup produced a leading /home path, anchor it to the
+    # authenticated user's home path.
+    if user_id and segments[0] == "home":
+        suffix = "/".join(segments[1:])
+        base = get_user_home_path(user_id)
+        return f"{base}/{suffix}" if suffix else base
+
+    reconstructed = "/".join(segments)
+    if is_absolute:
+        reconstructed = f"/{reconstructed}"
+    return reconstructed
 
 def _get_file_registry_client(file_utilities_config: dict) -> Optional[MongoClient]:
     """Create or reuse a MongoDB client for session file lookups."""
@@ -488,6 +527,111 @@ def register_workspace_tools(
     file_utilities_config: Optional[dict] = None
 ):
     """Register workspace tools with the FastMCP server"""
+    contract_counters = {
+        "canonical_schema_validation_failures": 0,
+        "correlation_missing_fields": 0,
+        "pagination_contract_violations": 0
+    }
+
+    def _canonical_workspace_response(
+        raw: dict,
+        *,
+        mode: str,
+        default_format: str = "json",
+        internal: Optional[dict] = None
+    ) -> dict:
+        def _log_boundary(result: dict, schema_valid: bool) -> None:
+            corr = result.get("correlation", {}) if isinstance(result, dict) else {}
+            pag = result.get("pagination", {}) if isinstance(result, dict) else {}
+            print(
+                "[canonical_workspace_response] "
+                f"mode={mode} requestId={corr.get('requestId')} "
+                f"requestCorrelationId={corr.get('requestCorrelationId')} "
+                f"schema_valid={schema_valid} nextCursorId={pag.get('nextCursorId')}",
+                file=sys.stderr
+            )
+
+        if not isinstance(raw, dict):
+            canonical = build_canonical_result(
+                source="bvbrc-workspace",
+                mode=mode,
+                data=raw,
+                result_format=default_format if raw is not None else "none",
+                count=0,
+                num_found=0,
+                status="success",
+                internal=internal
+            )
+            try:
+                validate_canonical_result(canonical)
+            except Exception:
+                contract_counters["canonical_schema_validation_failures"] += 1
+                raise
+            _log_boundary(canonical, True)
+            return canonical
+
+        if raw.get("error") is True or (isinstance(raw.get("error"), str) and raw.get("error")):
+            message = raw.get("message") or raw.get("error")
+            canonical = build_canonical_result(
+                source=raw.get("source", "bvbrc-workspace"),
+                mode=mode,
+                data=None,
+                result_format="none",
+                count=0,
+                num_found=0,
+                status="error",
+                error={
+                    "code": raw.get("errorType", "WORKSPACE_ERROR"),
+                    "message": str(message),
+                    "details": raw.get("details", {})
+                },
+                internal=internal
+            )
+            try:
+                validate_canonical_result(canonical)
+            except Exception:
+                contract_counters["canonical_schema_validation_failures"] += 1
+                raise
+            if not canonical["correlation"].get("requestCorrelationId"):
+                contract_counters["correlation_missing_fields"] += 1
+            _log_boundary(canonical, True)
+            return canonical
+
+        data = raw
+        payload_format = default_format
+        if "content" in raw and isinstance(raw.get("content"), str):
+            data = raw.get("content")
+            payload_format = "none"
+        if "base64_data" in raw:
+            data = raw.get("base64_data")
+            payload_format = "none"
+        count = 0
+        if isinstance(data, list):
+            count = len(data)
+        elif isinstance(data, dict):
+            if isinstance(data.get("items"), list):
+                count = len(data.get("items"))
+            elif isinstance(data.get("results"), list):
+                count = len(data.get("results"))
+        canonical = build_canonical_result(
+            source=raw.get("source", "bvbrc-workspace"),
+            mode=mode,
+            data=data,
+            result_format=payload_format,
+            count=raw.get("count", count),
+            num_found=raw.get("numFound", raw.get("count", count)),
+            status="success",
+            internal=internal
+        )
+        try:
+            validate_canonical_result(canonical)
+        except Exception:
+            contract_counters["canonical_schema_validation_failures"] += 1
+            raise
+        if canonical["pagination"].get("hasMore") and canonical["pagination"].get("nextCursorId") is None:
+            contract_counters["pagination_contract_violations"] += 1
+        _log_boundary(canonical, True)
+        return canonical
     
     @mcp.tool()
     async def workspace_browse_tool(
@@ -532,14 +676,15 @@ def register_workspace_tools(
         """
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="workspace_browse")
 
         user_id = extract_userid_from_token(auth_token)
-        resolved_path = resolve_relative_path(path, user_id)
+        sanitized_path = _sanitize_workspace_browse_path(path, user_id)
+        resolved_path = resolve_relative_path(sanitized_path, user_id)
 
         effective_num_results = 50 if num_results is None else num_results
         normalized_name_contains = _normalize_string_or_list(name_contains)
@@ -551,7 +696,7 @@ def register_workspace_tools(
             set(normalized_workspace_types or []) - set(SUPPORTED_WORKSPACE_TYPES)
         )
         if invalid_workspace_types:
-            return {
+            return _canonical_workspace_response({
                 "error": "Invalid workspace_types value(s)",
                 "errorType": "INVALID_PARAMETERS",
                 "details": {
@@ -559,16 +704,16 @@ def register_workspace_tools(
                     "supported_workspace_types": SUPPORTED_WORKSPACE_TYPES
                 },
                 "source": "bvbrc-workspace"
-            }
+            }, mode="workspace_browse")
 
         print(
-            f"Browsing workspace path: {resolved_path}, user_id: {user_id}, "
+            f"Browsing workspace path: {resolved_path}, user_id: {user_id}, original_path: {path}, "
             f"name_contains: {normalized_name_contains}, file_extensions: {normalized_extensions}, "
             f"workspace_types: {normalized_workspace_types}, sort_by: {sort_by}, sort_order: {sort_order}, "
             f"num_results: {effective_num_results}",
             file=sys.stderr
         )
-        return await workspace_browse(
+        raw = await workspace_browse(
             api=api,
             token=auth_token,
             path=resolved_path,
@@ -580,6 +725,7 @@ def register_workspace_tools(
             num_results=effective_num_results,
             tool_name="workspace_browse_tool"
         )
+        return _canonical_workspace_response(raw, mode="workspace_browse")
 
     # LEAVE HERE FOR NOW, DO NOT REMOVE
     #@mcp.tool(annotations={"readOnlyHint": True})
@@ -612,67 +758,69 @@ def register_workspace_tools(
                 record = _get_registered_file_record(session_id, file_id, file_utilities_config or {})
                 file_path = _resolve_local_file_path(session_id, file_id, file_utilities_config)
                 if not os.path.exists(file_path):
-                    return {
+                    return _canonical_workspace_response({
                         "error": "Local file not found",
                         "errorType": "FILE_NOT_FOUND",
                         "details": {"session_id": session_id, "file_id": file_id},
                         "source": "bvbrc-workspace"
-                    }
+                    }, mode="file_metadata")
                 metadata = _build_local_metadata(
                     file_path,
                     session_id=session_id,
                     file_id=file_id,
                     registry_record=record
                 )
-                return metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
+                result = metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
+                return _canonical_workspace_response(result, mode="file_metadata")
             except Exception as e:
-                return {
+                return _canonical_workspace_response({
                     "error": f"Error getting local file metadata: {str(e)}",
                     "errorType": "PROCESSING_ERROR",
                     "source": "bvbrc-workspace"
-                }
+                }, mode="file_metadata")
 
         if not path:
-            return {
+            return _canonical_workspace_response({
                 "error": "Provide either (session_id and file_id) or path",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="file_metadata")
 
         # Local absolute-path mode (restricted to configured session_base_path)
         if os.path.isabs(path) and os.path.exists(path):
             base_path = (file_utilities_config or {}).get("session_base_path")
             if not base_path:
-                return {
+                return _canonical_workspace_response({
                     "error": "Local path metadata requires file_utilities.session_base_path to be configured",
                     "errorType": "INVALID_PARAMETERS",
                     "source": "bvbrc-workspace"
-                }
+                }, mode="file_metadata")
             if not _is_within_base_path(path, base_path):
-                return {
+                return _canonical_workspace_response({
                     "error": "Local path is outside configured session base path",
                     "errorType": "INVALID_PARAMETERS",
                     "details": {"path": path},
                     "source": "bvbrc-workspace"
-                }
+                }, mode="file_metadata")
             try:
                 metadata = _build_local_metadata(path)
-                return metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
+                result = metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
+                return _canonical_workspace_response(result, mode="file_metadata")
             except Exception as e:
-                return {
+                return _canonical_workspace_response({
                     "error": f"Error getting local file metadata: {str(e)}",
                     "errorType": "PROCESSING_ERROR",
                     "source": "bvbrc-workspace"
-                }
+                }, mode="file_metadata")
 
         # Workspace-path mode
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="file_metadata")
 
         user_id = extract_userid_from_token(auth_token)
         resolved_path = resolve_relative_path(path, user_id)
@@ -680,9 +828,10 @@ def register_workspace_tools(
 
         result = await workspace_get_file_metadata(api, resolved_path, auth_token)
         if "error" in result:
-            return result
+            return _canonical_workspace_response(result, mode="file_metadata")
         metadata = _build_workspace_metadata(result, resolved_path)
-        return metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
+        payload = metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
+        return _canonical_workspace_response(payload, mode="file_metadata")
 
     @mcp.tool()
     async def workspace_download_file_tool(token: Optional[str] = None, path: str = None, output_file: Optional[str] = None, return_data: bool = False) -> dict:
@@ -700,11 +849,11 @@ def register_workspace_tools(
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="workspace_download")
 
         # Extract user_id from token for path resolution and logging
         user_id = extract_userid_from_token(auth_token)
@@ -713,7 +862,7 @@ def register_workspace_tools(
         print(f"Downloading file from path: {resolved_path}, user_id: {user_id}, output_file: {output_file}, return_data: {return_data}")
 
         result = await workspace_download_file(api, resolved_path, auth_token, output_file, return_data)
-        return result
+        return _canonical_workspace_response(result, mode="workspace_download")
 
     @mcp.tool(name="read_file_bytes_tool", annotations={"readOnlyHint": True})
     async def read_file_bytes_tool(
@@ -743,12 +892,12 @@ def register_workspace_tools(
         try:
             if session_id or file_id:
                 if not session_id or not file_id:
-                    return {
+                    return _canonical_workspace_response({
                         "error": True,
                         "errorType": "INVALID_PARAMETERS",
                         "message": "Provide both session_id and file_id for local file reads",
                         "source": "bvbrc-workspace"
-                    }
+                    }, mode="read_file_bytes")
 
                 print(
                     f"Reading local file bytes from session file {file_id} in session {session_id}: "
@@ -757,61 +906,64 @@ def register_workspace_tools(
                 )
                 file_path = _resolve_local_file_path(session_id, file_id, file_utilities_config)
                 if not os.path.exists(file_path):
-                    return {
+                    return _canonical_workspace_response({
                         "error": True,
                         "errorType": "FILE_NOT_FOUND",
                         "message": f"File {file_id} not found",
                         "details": {"fileId": file_id, "session_id": session_id},
                         "source": "bvbrc-workspace"
-                    }
+                    }, mode="read_file_bytes")
 
                 result = _read_local_file_byte_range(file_path, start_byte, max_bytes)
                 if result.get("error"):
-                    return result
+                    return _canonical_workspace_response(result, mode="read_file_bytes")
                 result["session_id"] = session_id
                 result["file_id"] = file_id
-                return result
+                return _canonical_workspace_response(result, mode="read_file_bytes")
 
             if not path:
-                return {
+                return _canonical_workspace_response({
                     "error": True,
                     "errorType": "INVALID_PARAMETERS",
                     "message": "Provide either (session_id and file_id) or path",
                     "source": "bvbrc-workspace"
-                }
+                }, mode="read_file_bytes")
 
             # Local absolute-path mode (restricted to configured session_base_path)
             if os.path.isabs(path) and os.path.exists(path):
                 base_path = (file_utilities_config or {}).get("session_base_path")
                 if not base_path:
-                    return {
+                    return _canonical_workspace_response({
                         "error": True,
                         "errorType": "INVALID_PARAMETERS",
                         "message": "Local path reads require file_utilities.session_base_path to be configured",
                         "source": "bvbrc-workspace"
-                    }
+                    }, mode="read_file_bytes")
                 if not _is_within_base_path(path, base_path):
-                    return {
+                    return _canonical_workspace_response({
                         "error": True,
                         "errorType": "INVALID_PARAMETERS",
                         "message": "Local path is outside configured session base path",
                         "details": {"path": path},
                         "source": "bvbrc-workspace"
-                    }
+                    }, mode="read_file_bytes")
 
                 print(
                     f"Reading local file bytes from path: {path}, start_byte={start_byte}, max_bytes={max_bytes}",
                     file=sys.stderr
                 )
-                return _read_local_file_byte_range(path, start_byte, max_bytes)
+                return _canonical_workspace_response(
+                    _read_local_file_byte_range(path, start_byte, max_bytes),
+                    mode="read_file_bytes"
+                )
 
             auth_token = token_provider.get_token(token)
             if not auth_token:
-                return {
+                return _canonical_workspace_response({
                     "error": "No authentication token available",
                     "errorType": "AUTHENTICATION_ERROR",
                     "source": "bvbrc-workspace"
-                }
+                }, mode="read_file_bytes")
 
             user_id = extract_userid_from_token(auth_token)
             resolved_path = resolve_relative_path(path, user_id)
@@ -831,14 +983,14 @@ def register_workspace_tools(
             if isinstance(result, dict):
                 result.setdefault("source_type", "workspace")
                 result.setdefault("workspace_path", resolved_path)
-            return result
+            return _canonical_workspace_response(result, mode="read_file_bytes")
         except Exception as e:
-            return {
+            return _canonical_workspace_response({
                 "error": True,
                 "errorType": "PROCESSING_ERROR",
                 "message": f"Error reading file bytes: {str(e)}",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="read_file_bytes")
 
     @mcp.tool(annotations={"readOnlyHint": True})
     def read_file_lines(
@@ -859,31 +1011,34 @@ def register_workspace_tools(
         )
         try:
             if not session_id or not file_id:
-                return {
+                return _canonical_workspace_response({
                     "error": True,
                     "errorType": "INVALID_PARAMETERS",
                     "message": "Missing required parameters: session_id and file_id",
                     "source": "bvbrc-workspace"
-                }
+                }, mode="read_file_lines")
 
             file_path = _resolve_local_file_path(session_id, file_id, file_utilities_config)
             if not os.path.exists(file_path):
-                return {
+                return _canonical_workspace_response({
                     "error": True,
                     "errorType": "FILE_NOT_FOUND",
                     "message": f"File {file_id} not found",
                     "details": {"fileId": file_id, "session_id": session_id},
                     "source": "bvbrc-workspace"
-                }
+                }, mode="read_file_lines")
 
-            return _read_local_file_lines(file_path, start, end, limit)
+            return _canonical_workspace_response(
+                _read_local_file_lines(file_path, start, end, limit),
+                mode="read_file_lines"
+            )
         except Exception as e:
-            return {
+            return _canonical_workspace_response({
                 "error": True,
                 "errorType": "PROCESSING_ERROR",
                 "message": f"Error reading file lines: {str(e)}",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="read_file_lines")
 
     @mcp.tool()
     async def workspace_upload(token: Optional[str] = None, filename: str = None, upload_dir: str = None) -> dict:
@@ -895,20 +1050,20 @@ def register_workspace_tools(
             upload_dir: Directory to upload the file to (relative to user's home directory, defaults to user's home directory).
         """
         if not filename:
-            return {
+            return _canonical_workspace_response({
                 "error": "filename parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="workspace_upload")
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="workspace_upload")
 
         # Extract user_id from token for path resolution and logging
         user_id = extract_userid_from_token(auth_token)
@@ -922,7 +1077,7 @@ def register_workspace_tools(
         print(f"Uploading file: {filename}, user_id: {user_id}, upload_dir: {upload_dir}")
 
         result = await workspace_upload_func(api, filename, upload_dir, auth_token)
-        return result
+        return _canonical_workspace_response(result, mode="workspace_upload")
 
     @mcp.tool()
     async def create_genome_group(token: Optional[str] = None, genome_group_name: str = None, genome_id_list: str = None, genome_group_path: str = None) -> dict:
@@ -935,27 +1090,27 @@ def register_workspace_tools(
             genome_group_path: Full path for the genome group. If not provided, defaults to /<user_id>/home/<genome_group_name>.
         """
         if not genome_group_name:
-            return {
+            return _canonical_workspace_response({
                 "error": "genome_group_name parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_genome_group")
 
         if not genome_id_list:
-            return {
+            return _canonical_workspace_response({
                 "error": "genome_id_list parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_genome_group")
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_genome_group")
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -977,16 +1132,16 @@ def register_workspace_tools(
         elif isinstance(genome_id_list, list):
             genome_id_list_parsed = [str(gid).strip() for gid in genome_id_list if gid]
         else:
-            return {
+            return _canonical_workspace_response({
                 "error": f"genome_id_list must be a string or list, got {type(genome_id_list)}",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_genome_group")
         
         print("genome_id_list_parsed", genome_id_list_parsed, file=sys.stderr)
         print("genome_id_list_parsed length", len(genome_id_list_parsed), file=sys.stderr)
         result = await workspace_create_genome_group(api, genome_group_path, genome_id_list_parsed, auth_token)
-        return result
+        return _canonical_workspace_response(result, mode="create_genome_group")
 
     @mcp.tool()
     async def create_feature_group(token: Optional[str] = None, feature_group_name: str = None, feature_id_list: str = None, feature_group_path: str = None) -> dict:
@@ -999,25 +1154,25 @@ def register_workspace_tools(
             feature_group_path: Full path for the feature group. If not provided, defaults to /<user_id>/home/<feature_group_name>.
         """
         if not feature_group_name and not feature_group_path:
-            return {
+            return _canonical_workspace_response({
                 "error": "feature_group_name or feature_group_path parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_feature_group")
 
         if feature_group_name and feature_group_path:
-            return {
+            return _canonical_workspace_response({
                 "error": "only one of feature_group_name or feature_group_path parameter can be provided",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_feature_group")
 
         if not feature_id_list:
-            return {
+            return _canonical_workspace_response({
                 "error": "feature_id_list parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_feature_group")
 
         # The LLM is consistently forgetting the final '.' in the feature IDs
         feature_id_list = feature_id_list.split(',')
@@ -1035,11 +1190,11 @@ def register_workspace_tools(
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="create_feature_group")
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -1054,7 +1209,7 @@ def register_workspace_tools(
         print(f"Creating feature group: {feature_group_name}, user_id: {user_id}, path: {feature_group_path}")
 
         result = await workspace_create_feature_group(api, feature_group_path, feature_id_list, auth_token)
-        return result
+        return _canonical_workspace_response(result, mode="create_feature_group")
 
     @mcp.tool()
     async def get_genome_group_ids(token: Optional[str] = None, genome_group_name: str = None, genome_group_path: str = None) -> dict:
@@ -1071,27 +1226,27 @@ def register_workspace_tools(
             List of genome_ids in the specified genome group.
         """
         if not genome_group_name and not genome_group_path:
-            return {
+            return _canonical_workspace_response({
                 "error": "genome_group_name or genome_group_path parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="get_genome_group_ids")
         
         if genome_group_name and genome_group_path:
-            return {
+            return _canonical_workspace_response({
                 "error": "only one of genome_group_name or genome_group_path parameter can be provided",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="get_genome_group_ids")
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="get_genome_group_ids")
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -1105,7 +1260,7 @@ def register_workspace_tools(
         print(f"Getting genome group IDs: {genome_group_name}, user_id: {user_id}, path: {genome_group_path}")
 
         result = await workspace_get_genome_group_ids(api, genome_group_path, auth_token)
-        return result
+        return _canonical_workspace_response(result, mode="get_genome_group_ids")
 
     @mcp.tool()
     async def get_feature_group_ids(token: Optional[str] = None, feature_group_name: str = None, feature_group_path: str = None) -> dict:
@@ -1122,27 +1277,27 @@ def register_workspace_tools(
             List of feature_ids in the specified feature group.
         """
         if not feature_group_name and not feature_group_path:
-            return {
+            return _canonical_workspace_response({
                 "error": "feature_group_name or feature_group_path parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="get_feature_group_ids")
 
         if feature_group_name and feature_group_path:
-            return {
+            return _canonical_workspace_response({
                 "error": "only one of feature_group_name or feature_group_path parameter can be provided",
                 "errorType": "INVALID_PARAMETERS",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="get_feature_group_ids")
 
         # Get the appropriate token
         auth_token = token_provider.get_token(token)
         if not auth_token:
-            return {
+            return _canonical_workspace_response({
                 "error": "No authentication token available",
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
-            }
+            }, mode="get_feature_group_ids")
 
         # Extract user_id from token for path resolution
         user_id = extract_userid_from_token(auth_token)
@@ -1156,4 +1311,4 @@ def register_workspace_tools(
         print(f"Getting feature group IDs: {feature_group_name}, user_id: {user_id}, path: {feature_group_path}")
 
         result = await workspace_get_feature_group_ids(api, feature_group_path, auth_token)
-        return result
+        return _canonical_workspace_response(result, mode="get_feature_group_ids")

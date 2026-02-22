@@ -3,6 +3,7 @@ import httpx
 import json
 from typing import Any, Dict, Optional
 import sys
+import uuid
 
 
 class JsonRpcCaller:
@@ -23,7 +24,14 @@ class JsonRpcCaller:
             'Content-Type': 'application/jsonrpc+json'
         })
     
-    def call(self, method: str, params: Optional[Any] = None, request_id: int = 1, token: str = None) -> Any:
+    @staticmethod
+    def _normalize_request_id(request_id: Optional[Any]) -> str:
+        if request_id is None:
+            return str(uuid.uuid4())
+        normalized = str(request_id).strip()
+        return normalized if normalized else str(uuid.uuid4())
+
+    def call(self, method: str, params: Optional[Any] = None, request_id: Optional[Any] = None, token: str = None) -> Any:
         """
         Make a JSON-RPC call to the service API.
         
@@ -61,10 +69,11 @@ class JsonRpcCaller:
             print(f"Warning: Could not determine params type, passing through as-is: {e}", file=sys.stderr)
             pass
 
+        resolved_request_id = self._normalize_request_id(request_id)
         payload = {
             "jsonrpc": "2.0",
             "method": method,
-            "id": request_id,
+            "id": resolved_request_id,
             "params": params,
         }
         print("payload", payload)
@@ -109,7 +118,7 @@ class JsonRpcCaller:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON response: {e}")
 
-    async def acall(self, method: str, params: Optional[Any] = None, request_id: int = 1, token: str = None) -> Any:
+    async def acall(self, method: str, params: Optional[Any] = None, request_id: Optional[Any] = None, token: str = None) -> Any:
         """
         Make an async JSON-RPC call to the service API.
         
@@ -147,10 +156,11 @@ class JsonRpcCaller:
             print(f"Warning: Could not determine params type, passing through as-is: {e}", file=sys.stderr)
             pass
 
+        resolved_request_id = self._normalize_request_id(request_id)
         payload = {
             "jsonrpc": "2.0",
             "method": method,
-            "id": request_id,
+            "id": resolved_request_id,
             "params": params,
         }
         print("payload", payload)

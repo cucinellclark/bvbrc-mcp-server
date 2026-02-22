@@ -1,0 +1,24 @@
+{
+  "source": "bvbrc-mcp-data",
+  "mode": "global",
+  "data": "genome_id\tgenome_name\n208964.12\tE. coli K-12\n",
+  "format": "tsv",
+  "count": 1,
+  "numFound": 1,
+  "status": "success",
+  "correlation": {
+    "requestId": "req-1",
+    "requestCorrelationId": "corr-1",
+    "pageCorrelationId": "corr-1:end",
+    "batchNumber": 1
+  },
+  "pagination": {
+    "nextCursorId": null,
+    "hasMore": false,
+    "totalBatches": 1
+  },
+  "replay": {
+    "rql_replay_query": "?keyword(escherichia%20coli)&limit(100)"
+  },
+  "error": null
+}

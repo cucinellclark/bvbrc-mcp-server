@@ -11,6 +11,7 @@ import json
 import sys
 import time
 import asyncio
+import hashlib
 from typing import Any, Dict, List, Tuple, Optional, Set
 from bvbrc_solr_api import create_client, query
 from bvbrc_solr_api.core.solr_http_client import async_select as solr_select
@@ -148,6 +149,8 @@ async def query_direct(core: str, filter_str: str = "", options: Dict[str, Any] 
     
     # Use provided batch_size or fall back to default constant
     rows_per_page = batch_size if batch_size is not None else CURSOR_BATCH_SIZE
+    correlation_seed = f"{core}|{filter_str}|{cursorId or '*'}|{rows_per_page}|{bool(countOnly)}"
+    request_correlation_id = hashlib.sha1(correlation_seed.encode("utf-8")).hexdigest()
     
     print(f"[query_direct] Query params: core='{core}', filter_str='{filter_str}', rows={rows_per_page}, cursorId={cursorId or '*'}, countOnly={countOnly}")
     if options:
@@ -239,7 +242,15 @@ async def query_direct(core: str, filter_str: str = "", options: Dict[str, Any] 
         if countOnly:
             # Return Solr-reported total without fetching documents
             docs, _next_cursor, num_found = await _single_page_with_retry(pager.cursor)
-            return {"numFound": num_found if num_found is not None else len(docs)}
+            return {
+                "numFound": num_found if num_found is not None else len(docs),
+                "correlation": {
+                    "requestId": None,
+                    "requestCorrelationId": request_correlation_id,
+                    "pageCorrelationId": f"{request_correlation_id}:count",
+                    "batchNumber": 1
+                }
+            }
 
         # Fetch a single batch/page and return nextCursorId for pagination
         docs, next_cursor, num_found = await _single_page_with_retry(pager.cursor)
@@ -248,6 +259,12 @@ async def query_direct(core: str, filter_str: str = "", options: Dict[str, Any] 
             "count": len(docs),
             "numFound": num_found if num_found is not None else len(docs),
             "nextCursorId": next_cursor,
+            "correlation": {
+                "requestId": None,
+                "requestCorrelationId": request_correlation_id,
+                "pageCorrelationId": f"{request_correlation_id}:{next_cursor or 'end'}",
+                "batchNumber": 1
+            }
         }
 
 

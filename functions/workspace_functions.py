@@ -482,7 +482,6 @@ async def workspace_browse(
         # Server-side limiting via limit parameter, no client-side slicing needed
         return {
             "result": {
-                "items": items,
                 "tool_name": tool_name,
                 "result_type": "search_result",
                 "count": len(items),

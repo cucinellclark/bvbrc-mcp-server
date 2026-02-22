@@ -10,6 +10,7 @@ import subprocess
 import os
 import re
 import tempfile
+import sys
 from urllib.parse import quote, unquote_plus
 from typing import Optional, Dict, Any, List
 
@@ -31,6 +32,7 @@ from functions.data_functions import (
     CURSOR_BATCH_SIZE
 )
 from common.llm_client import create_llm_client_from_config
+from common.canonical_result_schema import build_canonical_result, validate_canonical_result
 
 # Global variables to store configuration
 _base_url = None
@@ -366,6 +368,141 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
     global _base_url, _token_provider
     _base_url = base_url
     _token_provider = token_provider
+    contract_counters = {
+        "canonical_schema_validation_failures": 0,
+        "correlation_missing_fields": 0,
+        "pagination_contract_violations": 0
+    }
+
+    def _canonical_data_response(
+        raw: Any,
+        *,
+        mode: str,
+        default_format: str = "json",
+        internal: Optional[Dict[str, Any]] = None,
+        replay: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        def _log_boundary(result: Dict[str, Any], schema_valid: bool) -> None:
+            corr = result.get("correlation", {}) if isinstance(result, dict) else {}
+            pag = result.get("pagination", {}) if isinstance(result, dict) else {}
+            print(
+                "[canonical_data_response] "
+                f"tool_name=bvbrc_data mode={mode} "
+                f"requestId={corr.get('requestId')} "
+                f"requestCorrelationId={corr.get('requestCorrelationId')} "
+                f"schema_valid={schema_valid} "
+                f"nextCursorId={pag.get('nextCursorId')}",
+                file=sys.stderr
+            )
+
+        if not isinstance(raw, dict):
+            canonical = build_canonical_result(
+                source="bvbrc-mcp-data",
+                mode=mode,
+                data=raw,
+                result_format=default_format if raw is not None else "none",
+                count=0,
+                num_found=0,
+                status="success",
+                internal=internal,
+                replay=replay
+            )
+            try:
+                validate_canonical_result(canonical)
+            except Exception:
+                contract_counters["canonical_schema_validation_failures"] += 1
+                raise
+            _log_boundary(canonical, True)
+            return canonical
+
+        if "error" in raw and raw.get("error"):
+            err_message = raw.get("message") or raw.get("error")
+            corr = raw.get("correlation", {}) if isinstance(raw.get("correlation"), dict) else {}
+            canonical = build_canonical_result(
+                source=raw.get("source", "bvbrc-mcp-data"),
+                mode=mode,
+                data=None,
+                result_format="none",
+                count=raw.get("count", 0),
+                num_found=raw.get("numFound", raw.get("count", 0)),
+                status="error",
+                correlation={
+                    "requestId": corr.get("requestId", raw.get("requestId")),
+                    "requestCorrelationId": corr.get("requestCorrelationId", raw.get("requestCorrelationId")),
+                    "pageCorrelationId": corr.get("pageCorrelationId", raw.get("pageCorrelationId")),
+                    "batchNumber": corr.get("batchNumber", raw.get("batchNumber")),
+                },
+                pagination={
+                    "nextCursorId": raw.get("nextCursorId"),
+                    "hasMore": bool(raw.get("nextCursorId")),
+                    "totalBatches": (raw.get("_paginationInfo") or {}).get("totalBatches", 0),
+                },
+                replay=replay,
+                error={
+                    "code": raw.get("errorType", "MCP_DATA_ERROR"),
+                    "message": str(err_message),
+                    "details": raw.get("details") or raw.get("hint") or {},
+                },
+                internal=internal
+            )
+            try:
+                validate_canonical_result(canonical)
+            except Exception:
+                contract_counters["canonical_schema_validation_failures"] += 1
+                raise
+            if not canonical["correlation"].get("requestCorrelationId"):
+                contract_counters["correlation_missing_fields"] += 1
+            _log_boundary(canonical, True)
+            return canonical
+
+        payload_format = "none"
+        payload_data = None
+        if "results" in raw:
+            payload_format = "json"
+            payload_data = raw.get("results", [])
+        elif "tsv" in raw:
+            payload_format = "tsv"
+            payload_data = raw.get("tsv", "")
+        elif "fasta" in raw:
+            payload_format = "fasta"
+            payload_data = raw.get("fasta", "")
+        else:
+            payload_format = default_format
+            payload_data = raw.get("data")
+
+        canonical = build_canonical_result(
+            source=raw.get("source", "bvbrc-mcp-data"),
+            mode=raw.get("mode", mode),
+            data=payload_data,
+            result_format=payload_format,
+            count=raw.get("count", 0),
+            num_found=raw.get("numFound", raw.get("count", 0)),
+            status="success",
+            correlation={
+                "requestId": (raw.get("correlation", {}) or {}).get("requestId", raw.get("requestId")),
+                "requestCorrelationId": (raw.get("correlation", {}) or {}).get("requestCorrelationId", raw.get("requestCorrelationId")),
+                "pageCorrelationId": (raw.get("correlation", {}) or {}).get("pageCorrelationId", raw.get("pageCorrelationId")),
+                "batchNumber": (raw.get("correlation", {}) or {}).get("batchNumber", raw.get("batchNumber")),
+            },
+            pagination={
+                "nextCursorId": raw.get("nextCursorId"),
+                "hasMore": bool(raw.get("nextCursorId")),
+                "totalBatches": (raw.get("_paginationInfo") or {}).get("totalBatches", 0),
+            },
+            replay=replay,
+            internal=internal
+        )
+        try:
+            validate_canonical_result(canonical)
+        except Exception:
+            contract_counters["canonical_schema_validation_failures"] += 1
+            raise
+        if not canonical["correlation"].get("requestCorrelationId"):
+            contract_counters["correlation_missing_fields"] += 1
+        if canonical["pagination"].get("hasMore") and canonical["pagination"].get("nextCursorId") is None:
+            contract_counters["pagination_contract_violations"] += 1
+        _log_boundary(canonical, True)
+        return canonical
 
     def _build_auth_headers(token: Optional[str]) -> Optional[Dict[str, str]]:
         """Build auth headers using token provider when configured."""
@@ -484,6 +621,8 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 total_num_found: Optional[int] = None
                 next_cursor_id: Optional[str] = None
                 total_batches = 0
+                request_correlation_id: Optional[str] = None
+                page_correlation_id: Optional[str] = None
                 cursor = cursorId or "*"
 
                 with tempfile.TemporaryDirectory(prefix="bvbrc_query_spool_") as spool_dir:
@@ -520,6 +659,9 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                             countOnly=False,
                             batch_size=page_batch_size
                         )
+                        correlation = page_result.get("correlation", {}) if isinstance(page_result, dict) else {}
+                        request_correlation_id = correlation.get("requestCorrelationId", request_correlation_id)
+                        page_correlation_id = correlation.get("pageCorrelationId", page_correlation_id)
                         page_results = page_result.get("results", [])
                         if not page_results:
                             next_cursor_id = None
@@ -537,6 +679,12 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                                     "count": total_fetched,
                                     "numFound": total_num_found if total_num_found is not None else total_fetched,
                                     "nextCursorId": page_result.get("nextCursorId"),
+                                    "correlation": {
+                                        "requestId": None,
+                                        "requestCorrelationId": request_correlation_id,
+                                        "pageCorrelationId": page_correlation_id,
+                                        "batchNumber": total_batches + 1
+                                    },
                                     "source": "bvbrc-mcp-data"
                                 }
                             batch_tsv = conversion_result.get("tsv", "")
@@ -597,6 +745,12 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                     if target_results is not None:
                         result["limit"] = target_results
                         result["limitReached"] = total_fetched >= target_results
+                    result["correlation"] = {
+                        "requestId": None,
+                        "requestCorrelationId": request_correlation_id,
+                        "pageCorrelationId": page_correlation_id,
+                        "batchNumber": total_batches
+                    }
 
                     if result_format == "tsv":
                         if os.path.exists(tsv_path):
@@ -659,7 +813,8 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         Returns:
             String with the parameters for the given collection
         """
-        return lookup_parameters(collection)
+        raw = {"results": [{"text": lookup_parameters(collection)}], "count": 1, "numFound": 1, "source": "bvbrc-mcp-data"}
+        return _canonical_data_response(raw, mode="metadata")
 
     # @mcp.tool(annotations={"readOnlyHint": True})
     def bvbrc_list_collections() -> str:
@@ -670,7 +825,8 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             String with the available collections
         """
         print("Fetching available collections.")
-        return list_solr_collections()
+        raw = {"results": [{"text": list_solr_collections()}], "count": 1, "numFound": 1, "source": "bvbrc-mcp-data"}
+        return _canonical_data_response(raw, mode="metadata")
 
     @mcp.tool(annotations={"readOnlyHint": True, "streamingHint": True})
     async def bvbrc_search_data(
@@ -705,12 +861,12 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         """
         normalized_cancel_token = _normalize_cancel_token(cancel_token)
         if not user_query or not str(user_query).strip():
-            return {
+            return _canonical_data_response({
                 "error": "user_query parameter is required",
                 "errorType": "INVALID_PARAMETERS",
                 "hint": "Provide a natural-language query or keyword list",
                 "source": "bvbrc-mcp-data"
-            }
+            }, mode="global")
 
         # This is here intentionally to disable advanced mode. We will remove this once we have a proper advanced mode.
         advanced = False
@@ -718,12 +874,12 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         query_text = str(user_query).strip()
         if not advanced:
             if _contains_solr_syntax(query_text):
-                return {
+                return _canonical_data_response({
                     "error": "user_query appears to contain Solr syntax, which is not allowed for this tool.",
                     "errorType": "INVALID_PARAMETERS",
                     "hint": "Provide natural language or plain keywords only.",
                     "source": "bvbrc-mcp-data"
-                }
+                }, mode="global")
 
             try:
                 search_info = _build_global_search_q_expr(query_text)
@@ -741,12 +897,12 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 print(f"[bvbrc_search_data] Planning output (global mode): {json.dumps(selection, indent=2)}")
                 collection = str(selection.get("collection", "")).strip()
                 if not collection:
-                    return {
+                    return _canonical_data_response({
                         "error": "Collection selection failed to produce a collection.",
                         "errorType": "PLANNING_FAILED",
                         "selection": selection,
                         "source": "bvbrc-mcp-data"
-                    }
+                    }, mode="global")
 
                 q_expr = str(search_info.get("q_expr", "")).strip() or "*:*"
                 if collection == "genome_feature":
@@ -780,7 +936,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         batch_size=CURSOR_BATCH_SIZE
                     )
                     count_value = int(count_result.get("numFound", 0) or 0)
-                    return {
+                    return _canonical_data_response({
                         "value": count_value,
                         "count": count_value,
                         "numFound": count_value,
@@ -795,7 +951,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         "mode": "global",
                         "data_api_base_url": _base_url,
                         "source": "bvbrc-mcp-data"
-                    }
+                    }, mode="global", default_format="none", internal={"countOnly": True}, replay={"rql_replay_query": rql_replay_query})
 
                 # Global mode should paginate through all cursor pages, mirroring
                 # the "return all matching results" behavior used elsewhere.
@@ -806,14 +962,14 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
 
                 while cursor:
                     if _is_download_cancelled(normalized_cancel_token):
-                        return {
+                        return _canonical_data_response({
                             "error": "Data download cancelled.",
                             "errorType": "CANCELLED",
                             "cancelled": True,
                             "count": len(merged_results),
                             "numFound": total_num_found if total_num_found is not None else len(merged_results),
                             "source": "bvbrc-mcp-data"
-                        }
+                        }, mode="global")
 
                     page_result = await query_direct(
                         core=collection,
@@ -860,7 +1016,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
 
                 conversion_result = convert_json_to_tsv(result.get("results", []))
                 if "error" in conversion_result:
-                    return {
+                    return _canonical_data_response({
                         "error": conversion_result["error"],
                         "hint": conversion_result.get("hint", ""),
                         "collection": collection,
@@ -875,7 +1031,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         "numFound": result.get("numFound"),
                         "nextCursorId": result.get("nextCursorId"),
                         "source": "bvbrc-mcp-data"
-                    }
+                    }, mode="global")
                 del result["results"]
                 result["tsv"] = conversion_result["tsv"]
 
@@ -889,13 +1045,26 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 result["mode"] = "global"
                 result["data_api_base_url"] = _base_url
                 result["source"] = "bvbrc-mcp-data"
-                return result
+                return _canonical_data_response(
+                    result,
+                    mode="global",
+                    replay={"rql_replay_query": rql_replay_query},
+                    internal={
+                        "collection": collection,
+                        "selection": selection,
+                        "searchMode": search_info.get("searchMode"),
+                        "keywords": sanitized_keywords,
+                        "q": q_expr,
+                        "rql_query": rql_query,
+                        "data_api_base_url": _base_url
+                    }
+                )
             except Exception as e:
-                return {
+                return _canonical_data_response({
                     "error": f"Global data search failed: {str(e)}",
                     "errorType": "SEARCH_FAILED",
                     "source": "bvbrc-mcp-data"
-                }
+                }, mode="global")
 
         # advanced=True: plan + execute targeted query
         try:
@@ -903,25 +1072,25 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             planning_result = create_query_plan_internal(query_text, llm_client)
             print(f"[bvbrc_search_data] Planning output (advanced mode): {json.dumps(planning_result, indent=2)}")
             if "error" in planning_result:
-                return {
+                return _canonical_data_response({
                     "error": planning_result.get("error"),
                     "errorType": "PLANNING_FAILED",
                     "selection": planning_result.get("selection"),
                     "validationError": planning_result.get("validationError"),
                     "rawPlan": planning_result.get("rawPlan"),
                     "source": "bvbrc-mcp-data"
-                }
+                }, mode="advanced")
 
             plan = planning_result.get("plan", {})
             collection = plan.get("collection")
             if not collection:
-                return {
+                return _canonical_data_response({
                     "error": "Planner did not return a target collection.",
                     "errorType": "PLANNING_FAILED",
                     "selection": planning_result.get("selection"),
                     "rawPlan": plan,
                     "source": "bvbrc-mcp-data"
-                }
+                }, mode="advanced")
 
             result = await _execute_structured_query(
                 collection=collection,
@@ -940,29 +1109,32 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             )
 
             if "error" in result:
-                return result
+                return _canonical_data_response(result, mode="advanced")
 
-            result["mode"] = "advanced"
-            result["data_api_base_url"] = _base_url
-            result["selection"] = planning_result.get("selection", {})
-            # Keep planner internals private from tool consumers.
             plan_for_response = dict(plan)
             plan_for_response.pop("sequence_response_mode", None)
-            result["plan"] = plan_for_response
-            return result
+            return _canonical_data_response(
+                result,
+                mode="advanced",
+                internal={
+                    "selection": planning_result.get("selection", {}),
+                    "plan": plan_for_response,
+                    "data_api_base_url": _base_url
+                }
+            )
         except FileNotFoundError as e:
-            return {
+            return _canonical_data_response({
                 "error": f"Configuration or prompt file not found: {str(e)}",
                 "errorType": "CONFIGURATION_ERROR",
                 "hint": "Ensure config/config.json and planning prompt files exist",
                 "source": "bvbrc-mcp-data"
-            }
+            }, mode="advanced")
         except Exception as e:
-            return {
+            return _canonical_data_response({
                 "error": f"Advanced data query failed: {str(e)}",
                 "errorType": "SEARCH_FAILED",
                 "source": "bvbrc-mcp-data"
-            }
+            }, mode="advanced")
         finally:
             # Prevent unbounded growth of token registry.
             _clear_download_cancel_token(normalized_cancel_token)
@@ -1037,12 +1209,12 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 base_url=_base_url,
                 headers=headers
             )
-            return result
+            return _canonical_data_response(result, mode="sequence", default_format="json")
         except Exception as e:
-            return {
+            return _canonical_data_response({
                 "error": f"Error retrieving sequence: {str(e)}",
                 "source": "bvbrc-mcp-data"
-            }
+            }, mode="sequence")
 
     # @mcp.tool(annotations={"readOnlyHint": True})
     async def bvbrc_get_genome_sequence_by_id(genome_ids: List[str],
@@ -1107,9 +1279,9 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 base_url=_base_url,
                 headers=headers
             )
-            return result
+            return _canonical_data_response(result, mode="sequence", default_format="fasta")
         except Exception as e:
-            return {
+            return _canonical_data_response({
                 "error": f"Error retrieving genome sequence: {str(e)}",
                 "source": "bvbrc-mcp-data"
-            }
+            }, mode="sequence")
