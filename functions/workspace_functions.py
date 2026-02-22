@@ -80,7 +80,7 @@ async def workspace_ls(
     api: JsonRpcCaller,
     paths: List[str],
     token: str,
-    file_types: List[str] = None,
+    workspace_types: List[str] = None,
     sort_by: str = None,
     sort_order: str = None,
     limit: int = None
@@ -93,7 +93,7 @@ async def workspace_ls(
         api: JsonRpcCaller instance configured with workspace URL and token
         paths: List of paths to list
         token: Authentication token for API calls
-        file_types: Optional list of file types to filter by (e.g., ['contigs', 'folder', 'unspecified']).
+        workspace_types: Optional list of workspace object types to filter by.
                     If provided, only files/objects with these types will be returned.
         sort_by: Optional sort field. Valid options: creation_time, name, size, type.
         sort_order: Optional sort direction. Valid options: asc, desc.
@@ -107,31 +107,15 @@ async def workspace_ls(
         if user_id:
             paths = _fix_duplicated_user_id_in_paths(paths, user_id)
         
-        # Build API call parameters
-        # Enable recursive search when file_types is provided to search subdirectories
-        if file_types:
-            # file_types is already a list
-            file_types_list = file_types if file_types else ['unspecified']
-
-            # Use recursive search format matching workspace_search when filtering by type
-            # Pass type as array directly (API expects array format for type filtering)
-            api_params = {
-                "recursive": True,
-                "includeSubDirs": True,
-                "excludeDirectories": False,
-                "excludeObjects": False,
-                "paths": paths,
-                "query": {
-                    "type": file_types_list
-                }
-            }
-        else:
-            # Non-recursive listing when no file_type filter.
-            # Workspace.ls expects lowercase "recursive".
-            api_params = {
-                "recursive": False,
-                "includeSubDirs": False,
-                "paths": paths
+        # Non-recursive listing mode by design.
+        api_params = {
+            "recursive": False,
+            "includeSubDirs": False,
+            "paths": paths
+        }
+        if workspace_types:
+            api_params["query"] = {
+                "type": workspace_types
             }
         # Pass backend-supported sort options through directly when provided
         if sort_by:
@@ -141,11 +125,10 @@ async def workspace_ls(
         if limit is not None:
             api_params["limit"] = limit
 
-        # Only include file_types_list in print if it was defined
-        print_msg = f"workspace_ls file_types: {file_types}, Query params: {json.dumps(api_params, indent=2)}"
-        if file_types:
-            print_msg = f"workspace_ls file_types: {file_types}, file_types_list: {file_types_list}, Query params: {json.dumps(api_params, indent=2)}"
-        print(print_msg, file=sys.stderr)
+        print(
+            f"workspace_ls workspace_types: {workspace_types}, Query params: {json.dumps(api_params, indent=2)}",
+            file=sys.stderr
+        )
         result = await api.acall("Workspace.ls", api_params, 1, token)
 
         # Standardize response structure
@@ -154,6 +137,10 @@ async def workspace_ls(
             "items": result_list,
             "count": len(result_list),
             "path": paths[0] if paths else "/",
+            "workspace_command": {
+                "method": "Workspace.ls",
+                "params": api_params
+            },
             "source": "bvbrc-workspace",
             "ui_grid": _build_grid_payload(
                 entity_type="workspace_item",
@@ -183,9 +170,9 @@ async def workspace_ls(
 async def workspace_search(
     api: JsonRpcCaller,
     paths: List[str] = None,
-    filename_search_terms: List[str] = None,
-    file_extension: List[str] = None,
-    file_types: List[str] = None,
+    name_contains: List[str] = None,
+    file_extensions: List[str] = None,
+    workspace_types: List[str] = None,
     token: str = None,
     sort_by: str = None,
     sort_order: str = None,
@@ -197,11 +184,11 @@ async def workspace_search(
     Args:
         api: JsonRpcCaller instance configured with workspace URL and token
         paths: List of paths to search
-        filename_search_terms: Optional list of terms to search for within file/object names. All terms must appear in the name (AND logic).
+        name_contains: Optional list of terms to search for within file/object names. All terms must appear in the name (AND logic).
                                Example: ["genome", "bacteria"] will match files containing both words in their name.
-        file_extension: Optional list of file extensions to filter by (e.g., ['py', 'txt', 'json']).
+        file_extensions: Optional list of file extensions to filter by (e.g., ['py', 'txt', 'json']).
                        Can include or exclude the leading dot. Multiple extensions use OR logic.
-        file_types: Optional list of file types to filter by (e.g., ['contigs', 'folder', 'unspecified']).
+        workspace_types: Optional list of workspace object types to filter by.
                    If provided, only files/objects with these types will be returned. This filters by the workspace object type,
                    not by file extension, so it can match files with different extensions that share the same type.
         token: Authentication token for API calls
@@ -232,14 +219,14 @@ async def workspace_search(
     type_conditions = []
 
     # Add filename search term condition(s) if provided
-    if filename_search_terms:
-        # filename_search_terms is already a list
-        name_conditions.extend(filename_search_terms)
+    if name_contains:
+        # name_contains is already a list
+        name_conditions.extend(name_contains)
 
     # Add file extension filter(s) if provided
-    if file_extension:
-        # file_extension is already a list
-        for ext in file_extension:
+    if file_extensions:
+        # file_extensions is already a list
+        for ext in file_extensions:
             # Normalize extension: remove leading dot if present, add it back for regex
             ext = ext.lstrip('.')
             # Create regex pattern that matches files ending with the extension
@@ -248,16 +235,16 @@ async def workspace_search(
             name_conditions.append(ext_pattern)
 
     # Add file type filter if provided
-    if file_types:
-        # file_types is already a list
+    if workspace_types:
+        # workspace_types is already a list
         # Add type filter condition
-        if len(file_types) == 1:
+        if len(workspace_types) == 1:
             type_conditions.append({
-                "type": file_types[0]
+                "type": workspace_types[0]
             })
         else:
             type_conditions.append({
-                "type": {"$in": file_types}
+                "type": {"$in": workspace_types}
             })
 
     # Build final query conditions
@@ -382,8 +369,11 @@ async def workspace_search(
         return {
             "items": result_list,
             "count": len(result_list),
-            "filename_search_terms": filename_search_terms,
-            "paths": paths,
+            "name_contains": name_contains,
+            "workspace_command": {
+                "method": "Workspace.ls",
+                "params": api_params
+            },
             "source": "bvbrc-workspace",
             "ui_grid": _build_grid_payload(
                 entity_type="workspace_item",
@@ -414,10 +404,9 @@ async def workspace_browse(
     api: JsonRpcCaller,
     token: str,
     path: str = None,
-    search: bool = False,
-    filename_search_terms: List[str] = None,
-    file_extension: List[str] = None,
-    file_types: List[str] = None,
+    name_contains: List[str] = None,
+    file_extensions: List[str] = None,
+    workspace_types: List[str] = None,
     sort_by: str = None,
     sort_order: str = None,
     num_results: int = 50,
@@ -426,18 +415,17 @@ async def workspace_browse(
     """
     Unified workspace browser entrypoint.
 
-    - If search is True: perform recursive search under path (or user home by default).
-    - If search is False: inspect path and return folder listing or file/object metadata.
+    - Automatically chooses recursive search when search-like filters are provided.
+    - Otherwise performs one-level directory listing.
 
     Args:
         api: JsonRpcCaller instance configured with workspace URL and token
         token: Authentication token for API calls
         path: Path to inspect/search. Defaults to user home if not provided.
-        search: If True, perform recursive search. If False, inspect path and return listing or metadata.
-        filename_search_terms: Optional list of terms to search within file/object names (used when search=True).
+        name_contains: Optional list of terms to search within file/object names (AND logic).
                                All terms must appear in the filename (AND logic).
-        file_extension: Optional list of extension filters (used when search=True). Multiple extensions use OR logic.
-        file_types: Optional list of workspace type filters (used in search and folder listing modes).
+        file_extensions: Optional list of extension filters. Multiple extensions use OR logic.
+        workspace_types: Optional list of workspace type filters.
         sort_by: Optional sort field. Valid options: creation_time, name, size, type.
         sort_order: Optional sort direction. Valid options: asc, desc.
         num_results: Maximum number of results to return. Defaults to 50.
@@ -446,10 +434,10 @@ async def workspace_browse(
     Returns a consistent response envelope with all data nested under "result":
       {
         "result": {
-          "items": <array> | "metadata": <dict>,  // items for search/list, metadata for file/object
+          "items": <array>,
           "tool_name": <tool name>,
-          "result_type": "search_result" | "list_result" | "metadata_result",
-          "count": <number>,  // present for search_result and list_result
+          "result_type": "search_result" | "list_result",
+          "count": <number>,
           "path": <workspace path>,
           "source": "bvbrc-workspace"
         }
@@ -472,13 +460,15 @@ async def workspace_browse(
             }
         path = f"/{user_id}/home"
 
-    if search:
+    use_recursive_search = bool(name_contains or file_extensions or workspace_types)
+
+    if use_recursive_search:
         search_result = await workspace_search(
             api=api,
             paths=[path],
-            filename_search_terms=filename_search_terms,
-            file_extension=file_extension,
-            file_types=file_types,
+            name_contains=name_contains,
+            file_extensions=file_extensions,
+            workspace_types=workspace_types,
             token=token,
             sort_by=sort_by,
             sort_order=sort_order,
@@ -488,6 +478,7 @@ async def workspace_browse(
             return search_result
 
         items = search_result.get("items", [])
+        workspace_command = search_result.get("workspace_command")
         # Server-side limiting via limit parameter, no client-side slicing needed
         return {
             "result": {
@@ -515,12 +506,13 @@ async def workspace_browse(
             "call": {
                 "tool": tool_name,
                 "backend_method": "Workspace.ls",
+                "workspace_command": workspace_command,
                 "arguments_executed": {
                     "path": path,
-                    "search": True,
-                    "filename_search_terms": filename_search_terms,
-                    "file_extension": file_extension,
-                    "file_types": file_types,
+                    "auto_mode": "find",
+                    "name_contains": name_contains,
+                    "file_extensions": file_extensions,
+                    "workspace_types": workspace_types,
                     "sort_by": sort_by,
                     "sort_order": sort_order,
                     "num_results": num_results
@@ -529,7 +521,7 @@ async def workspace_browse(
             }
         }
 
-    def _build_list_response(items: List[dict], result_path: str) -> dict:
+    def _build_list_response(items: List[dict], result_path: str, workspace_command: dict = None) -> dict:
         return {
             "result": {
                 "items": items,
@@ -556,10 +548,11 @@ async def workspace_browse(
             "call": {
                 "tool": tool_name,
                 "backend_method": "Workspace.ls",
+                "workspace_command": workspace_command,
                 "arguments_executed": {
                     "path": result_path,
-                    "search": False,
-                    "file_types": file_types,
+                    "auto_mode": "list",
+                    "workspace_types": workspace_types,
                     "sort_by": sort_by,
                     "sort_order": sort_order,
                     "num_results": num_results
@@ -577,7 +570,7 @@ async def workspace_browse(
             api=api,
             paths=[list_path],
             token=token,
-            file_types=file_types,
+            workspace_types=workspace_types,
             sort_by=sort_by,
             sort_order=sort_order,
             limit=num_results
@@ -587,73 +580,27 @@ async def workspace_browse(
             # Returning the original listing error preserves the real failure cause.
             return list_result
         items = list_result.get("items", [])
-        return _build_list_response(items, path)
+        return _build_list_response(items, path, list_result.get("workspace_command"))
 
-    metadata_result = await workspace_get_object(api, path, metadata_only=True, token=token)
-    if "error" in metadata_result:
-        return metadata_result
-
-    metadata = metadata_result.get("metadata")
-    if not metadata or not isinstance(metadata, dict):
+    list_result = await workspace_ls(
+        api=api,
+        paths=[path],
+        token=token,
+        workspace_types=workspace_types,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=num_results
+    )
+    if "error" in list_result:
         return {
-            "error": "Invalid metadata response",
-            "errorType": "INVALID_RESPONSE",
-            "source": "bvbrc-workspace"
-        }
-
-    auto_meta = metadata.get("autoMeta") if isinstance(metadata.get("autoMeta"), dict) else {}
-    is_folder = metadata.get("type") == "folder" or auto_meta.get("is_folder") == 1
-
-    if is_folder:
-        list_result = await workspace_ls(
-            api=api,
-            paths=[path],
-            token=token,
-            file_types=file_types,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            limit=num_results  # Pass limit to server-side
-        )
-        if "error" in list_result:
-            return list_result
-
-        items = list_result.get("items", [])
-        # Server-side limiting via limit parameter, no client-side slicing needed
-        return _build_list_response(items, path)
-
-    return {
-        "result": {
-            "metadata": metadata,
-            "tool_name": tool_name,
-            "result_type": "metadata_result",
-            "path": path,
+            "error": list_result.get("error", "Error browsing workspace"),
+            "errorType": list_result.get("errorType", "API_ERROR"),
             "source": "bvbrc-workspace",
-            "ui_grid": _build_grid_payload(
-                entity_type="workspace_metadata",
-                items=[metadata],
-                result_type="metadata_result",
-                source="bvbrc-workspace",
-                columns=[
-                    {"key": "name", "label": "Name", "sortable": False},
-                    {"key": "type", "label": "Type", "sortable": False},
-                    {"key": "creation_time", "label": "Created", "sortable": False},
-                    {"key": "size", "label": "Size", "sortable": False}
-                ],
-                selectable=False,
-                multi_select=False,
-                sortable=False
-            )
-        },
-        "call": {
-            "tool": tool_name,
-            "backend_method": "Workspace.get",
-            "arguments_executed": {
-                "path": path,
-                "search": False
-            },
-            "replayable": True
+            "hint": "workspace_browse_tool is discovery-only. Use read_file_bytes_tool to read file content."
         }
-    }
+
+    items = list_result.get("items", [])
+    return _build_list_response(items, path, list_result.get("workspace_command"))
 
 async def workspace_get_file_metadata(api: JsonRpcCaller, path: str, token: str) -> dict:
     """

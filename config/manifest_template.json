@@ -181,7 +181,7 @@
     },
     {
       "name": "workspace_browse_tool",
-      "description": "Browse workspace paths; optionally search recursively, list folders, or return file metadata"
+      "description": "Auto-browse workspace paths: recursive discovery when filters are set, otherwise folder listing (discovery only)"
     },
     {
       "name": "get_file_metadata",
