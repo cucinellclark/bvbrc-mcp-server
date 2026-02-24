@@ -181,7 +181,7 @@
     },
     {
       "name": "workspace_browse_tool",
-      "description": "Browse workspace paths; optionally search recursively, list folders, or return file metadata"
+      "description": "Find and list files in the user's personal workspace by name, type, or extension"
     },
     {
       "name": "get_file_metadata",

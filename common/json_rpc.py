@@ -86,7 +86,11 @@ class JsonRpcCaller:
             
             # Check for JSON-RPC errors (result should be a dict in JSON-RPC format)
             if isinstance(result, dict) and "error" in result:
-                raise ValueError(f"JSON-RPC error: {result['error']}")
+                err = result["error"]
+                msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                if isinstance(msg, str) and "Object not found" in msg:
+                    raise ValueError("Object not found")
+                raise ValueError(f"JSON-RPC error: {err}")
             
             # Return the result field, which could be a dict, list, or other type
             if isinstance(result, dict):
@@ -174,7 +178,11 @@ class JsonRpcCaller:
                 
                 # Check for JSON-RPC errors (result should be a dict in JSON-RPC format)
                 if isinstance(result, dict) and "error" in result:
-                    raise ValueError(f"JSON-RPC error: {result['error']}")
+                    err = result["error"]
+                    msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    if isinstance(msg, str) and "Object not found" in msg:
+                        raise ValueError("Object not found")
+                    raise ValueError(f"JSON-RPC error: {err}")
                 
                 # Return the result field, which could be a dict, list, or other type
                 if isinstance(result, dict):

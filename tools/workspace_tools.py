@@ -568,7 +568,7 @@ def register_workspace_tools(
         sort_order: Optional[str] = None,
         num_results: Optional[int] = 50
     ) -> dict:
-        """Browse/search workspace directories and files (discovery tool).
+        """Find and list files in the user's personal workspace by name, type, or extension.
 
         Args:
             token: Authentication token (optional - will use default if not provided)
@@ -605,6 +605,8 @@ def register_workspace_tools(
                 "errorType": "AUTHENTICATION_ERROR",
                 "source": "bvbrc-workspace"
             }
+
+        print(f"Inputs:\npath: {path}\nname_contains: {name_contains}\nfile_extensions: {file_extensions}\nworkspace_types: {workspace_types}\nsort_by: {sort_by}\nsort_order: {sort_order}\nnum_results: {num_results}")
 
         user_id = extract_userid_from_token(auth_token)
         sanitized_path = _sanitize_workspace_browse_path(path, user_id)

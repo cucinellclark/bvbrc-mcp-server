@@ -8,6 +8,31 @@ import json
 import sys
 import base64
 
+import os
+
+def _flatten_ls_result(result) -> list:
+    result_list = result if isinstance(result, list) else [result]
+    flat: list = []
+
+    for entry in result_list:
+        if isinstance(entry, dict):
+            for val in entry.values():
+                if isinstance(val, list):
+                    flat.extend(val)
+                else:
+                    flat.append(val)
+        else:
+            flat.append(entry)
+
+    # filter out items whose name (first element) starts with '.'
+    return [
+        item for item in flat
+        if isinstance(item, list)
+        and item
+        and not str(item[0]).startswith(".")
+    ]
+
+
 def _build_grid_payload(
     entity_type: str,
     items: list = None,
@@ -149,15 +174,16 @@ async def workspace_ls(
         result = await api.acall("Workspace.ls", api_params, 1, token)
 
         # Standardize response structure
-        result_list = result if isinstance(result, list) else [result]
+        # Workspace.ls returns [{path: [item1, item2, ...]}] — unwrap the inner items
+        flat_items = _flatten_ls_result(result)
         return {
-            "items": result_list,
-            "count": len(result_list),
+            "items": flat_items,
+            "count": len(flat_items),
             "path": paths[0] if paths else "/",
             "source": "bvbrc-workspace",
             "ui_grid": _build_grid_payload(
                 entity_type="workspace_item",
-                items=result_list,
+                items=flat_items,
                 result_type="list_result",
                 source="bvbrc-workspace",
                 sort={"sort_by": sort_by, "sort_order": sort_order},
@@ -174,6 +200,12 @@ async def workspace_ls(
             )
         }
     except Exception as e:
+        if "Object not found" in str(e):
+            return {
+                "error": "Object not found",
+                "errorType": "NOT_FOUND",
+                "source": "bvbrc-workspace"
+            }
         return {
             "error": f"Error listing workspace: {str(e)}",
             "errorType": "API_ERROR",
@@ -378,16 +410,17 @@ async def workspace_search(
         result = await api.acall("Workspace.ls", api_params, 1, token)
 
         # Standardize response structure
-        result_list = result if isinstance(result, list) else [result]
+        # Workspace.ls returns [{path: [item1, item2, ...]}] — unwrap the inner items
+        flat_items = _flatten_ls_result(result)
         return {
-            "items": result_list,
-            "count": len(result_list),
+            "items": flat_items,
+            "count": len(flat_items),
             "filename_search_terms": filename_search_terms,
             "paths": paths,
             "source": "bvbrc-workspace",
             "ui_grid": _build_grid_payload(
                 entity_type="workspace_item",
-                items=result_list,
+                items=flat_items,
                 result_type="search_result",
                 source="bvbrc-workspace",
                 sort={"sort_by": sort_by, "sort_order": sort_order},
@@ -404,6 +437,12 @@ async def workspace_search(
             )
         }
     except Exception as e:
+        if "Object not found" in str(e):
+            return {
+                "error": "Object not found",
+                "errorType": "NOT_FOUND",
+                "source": "bvbrc-workspace"
+            }
         return {
             "error": f"Error searching workspace: {str(e)}",
             "errorType": "API_ERROR",
@@ -472,7 +511,9 @@ async def workspace_browse(
             }
         path = f"/{user_id}/home"
 
-    if search:
+    # Auto-detect search mode when any filters are provided
+    has_filters = bool(filename_search_terms) or bool(file_extension) or bool(file_types)
+    if search or has_filters:
         search_result = await workspace_search(
             api=api,
             paths=[path],
@@ -525,7 +566,16 @@ async def workspace_browse(
                     "sort_order": sort_order,
                     "num_results": num_results
                 },
-                "replayable": True
+                "replayable": True,
+                "replay": {
+                    "path": path,
+                    "name_contains": filename_search_terms,
+                    "file_extensions": file_extension,
+                    "workspace_types": file_types,
+                    "sort_by": sort_by,
+                    "sort_order": sort_order,
+                    "num_results": num_results
+                }
             }
         }
 
@@ -564,7 +614,16 @@ async def workspace_browse(
                     "sort_order": sort_order,
                     "num_results": num_results
                 },
-                "replayable": True
+                "replayable": True,
+                "replay": {
+                    "path": result_path,
+                    "name_contains": None,
+                    "file_extensions": None,
+                    "workspace_types": file_types,
+                    "sort_by": sort_by,
+                    "sort_order": sort_order,
+                    "num_results": num_results
+                }
             }
         }
 
@@ -651,7 +710,16 @@ async def workspace_browse(
                 "path": path,
                 "search": False
             },
-            "replayable": True
+            "replayable": True,
+            "replay": {
+                "path": path,
+                "name_contains": None,
+                "file_extensions": None,
+                "workspace_types": file_types,
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+                "num_results": num_results
+            }
         }
     }
 
@@ -682,6 +750,12 @@ async def workspace_get_file_metadata(api: JsonRpcCaller, path: str, token: str)
                 "source": "bvbrc-workspace"
             }
     except Exception as e:
+        if "Object not found" in str(e):
+            return {
+                "error": "Object not found",
+                "errorType": "NOT_FOUND",
+                "source": "bvbrc-workspace"
+            }
         return {
             "error": f"Error getting file metadata: {str(e)}",
             "errorType": "API_ERROR",
@@ -1189,6 +1263,12 @@ async def workspace_get_object(api: JsonRpcCaller, path: str, metadata_only: boo
         }
 
     except Exception as e:
+        if "Object not found" in str(e):
+            return {
+                "error": "Object not found",
+                "errorType": "NOT_FOUND",
+                "source": "bvbrc-workspace"
+            }
         return {
             "error": f"Error getting workspace object: {str(e)}",
             "errorType": "API_ERROR",
