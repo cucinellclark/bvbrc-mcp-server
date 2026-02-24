@@ -123,7 +123,7 @@ STOPWORDS = {
 # Custom domain-specific stopwords to exclude
 CUSTOM_STOPWORDS = {
     "genomes", "genome", "subtype", "year", "id", "summary", "bv-brc", "taxa", "bvbrc",
-    "describe","feature"
+    "describe","feature", "genes", "related"
 }
 
 
@@ -758,6 +758,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                     else:
                         rql_query = f"and(eq(annotation,PATRIC),{rql_query})"
                     q_expr = f"({q_expr}) AND patric_id:*"
+                # TODO: add support for more find/replace rules for rql_query
                 rql_replay_query = _build_rql_replay_query(rql_query, limit=100)
                 print(
                     "[bvbrc_search_data:rql_replay] "
@@ -777,24 +778,33 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         headers=headers,
                         cursorId="*",
                         countOnly=True,
-                        batch_size=CURSOR_BATCH_SIZE
+                        batch_size=CURSOR_BATCH_SIZE,
                     )
                     count_value = int(count_result.get("numFound", 0) or 0)
                     return {
+                        "countOnly": True,
                         "value": count_value,
                         "count": count_value,
                         "numFound": count_value,
-                        "countOnly": True,
-                        "collection": collection,
-                        "selection": selection,
-                        "searchMode": search_info.get("searchMode"),
-                        "keywords": sanitized_keywords,
-                        "q": q_expr,
-                        "rql_query": rql_query,
-                        "rql_replay_query": rql_replay_query,
-                        "mode": "global",
-                        "data_api_base_url": _base_url,
-                        "source": "bvbrc-mcp-data"
+                        "call": {
+                            "tool": "bvbrc_search_data",
+                            "backend_method": "data_functions.query_direct",
+                            "replayable": True,
+                            "arguments_executed": {
+                                "mode": "global",
+                                "collection": collection,
+                                "selection": selection,
+                                "searchMode": search_info.get("searchMode"),
+                                "keywords": sanitized_keywords,
+                                "q": q_expr,
+                                "data_api_base_url": _base_url,
+                            },
+                            "replay": {
+                                "rql_query": rql_query,
+                                "rql_replay_query": rql_replay_query,
+                            },
+                            "source": "bvbrc-mcp-data",
+                        },
                     }
 
                 # Global mode should paginate through all cursor pages, mirroring
@@ -854,42 +864,62 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                     "nextCursorId": None,
                     "_paginationInfo": {
                         "totalBatches": total_batches,
-                        "batchSize": CURSOR_BATCH_SIZE
-                    }
+                        "batchSize": CURSOR_BATCH_SIZE,
+                    },
                 }
-
                 conversion_result = convert_json_to_tsv(result.get("results", []))
                 if "error" in conversion_result:
                     return {
                         "error": conversion_result["error"],
                         "hint": conversion_result.get("hint", ""),
-                        "collection": collection,
-                        "selection": selection,
-                        "searchMode": search_info.get("searchMode"),
-                        "keywords": sanitized_keywords,
-                        "q": q_expr,
-                        "rql_query": rql_query,
-                        "rql_replay_query": rql_replay_query,
                         "results": result.get("results", []),
                         "count": result.get("count"),
                         "numFound": result.get("numFound"),
                         "nextCursorId": result.get("nextCursorId"),
-                        "source": "bvbrc-mcp-data"
+                        "call": {
+                            "tool": "bvbrc_search_data",
+                            "backend_method": "data_functions.query_direct",
+                            "replayable": True,
+                            "arguments_executed": {
+                                "mode": "global",
+                                "collection": collection,
+                                "selection": selection,
+                                "searchMode": search_info.get("searchMode"),
+                                "keywords": sanitized_keywords,
+                                "q": q_expr,
+                                "data_api_base_url": _base_url,
+                            },
+                            "replay": {
+                                "rql_query": rql_query,
+                                "rql_replay_query": rql_replay_query,
+                            },
+                            "source": "bvbrc-mcp-data",
+                        },
                     }
                 del result["results"]
                 result["tsv"] = conversion_result["tsv"]
-
-                result["collection"] = collection
-                result["selection"] = selection
-                result["searchMode"] = search_info.get("searchMode")
-                result["keywords"] = sanitized_keywords
-                result["q"] = q_expr
-                result["rql_query"] = rql_query
-                result["rql_replay_query"] = rql_replay_query
-                result["mode"] = "global"
-                result["data_api_base_url"] = _base_url
-                result["source"] = "bvbrc-mcp-data"
-                return result
+                return {
+                    **result,
+                    "call": {
+                        "tool": "bvbrc_search_data",
+                        "backend_method": "data_functions.query_direct",
+                        "replayable": True,
+                        "arguments_executed": {
+                            "mode": "global",
+                            "collection": collection,
+                            "selection": selection,
+                            "searchMode": search_info.get("searchMode"),
+                            "keywords": sanitized_keywords,
+                            "q": q_expr,
+                            "data_api_base_url": _base_url,
+                        },
+                        "replay": {
+                            "rql_query": rql_query,
+                            "rql_replay_query": rql_replay_query,
+                        },
+                        "source": "bvbrc-mcp-data",
+                    },
+                }
             except Exception as e:
                 return {
                     "error": f"Global data search failed: {str(e)}",

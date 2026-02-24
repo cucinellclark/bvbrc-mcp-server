@@ -9,7 +9,7 @@ from functions.workspace_functions import (
 from common.json_rpc import JsonRpcCaller
 from common.token_provider import TokenProvider
 import json
-from typing import List, Optional
+from typing import List, Optional, Union
 import sys
 import os
 import csv
@@ -19,6 +19,55 @@ from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
 _file_registry_client: Optional[MongoClient] = None
+SUPPORTED_WORKSPACE_TYPES = [
+    "csv",
+    "diffexp_input_data",
+    "diffexp_input_metadata",
+    "doc",
+    "docx",
+    "embl",
+    "feature_dna_fasta",
+    "feature_protein_fasta",
+    "genbank_file",
+    "gff",
+    "gif",
+    "graph",
+    "jpg",
+    "json",
+    "nwk",
+    "pdf",
+    "phyloxml",
+    "png",
+    "pdb",
+    "ppt",
+    "pptx",
+    "reads",
+    "string",
+    "svg",
+    "tar_gz",
+    "tbi",
+    "tsv",
+    "txt",
+    "unspecified",
+    "vcf",
+    "vcf_gz",
+    "wig",
+    "xls",
+    "xlsx",
+    "xml",
+]
+
+def _normalize_string_or_list(value: Optional[Union[str, List[str]]]) -> Optional[List[str]]:
+    """Normalize a single string or list of strings to a cleaned list."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return [cleaned] if cleaned else None
+    if isinstance(value, list):
+        normalized = [str(item).strip() for item in value if str(item).strip()]
+        return normalized or None
+    return None
 
 def extract_userid_from_token(token: str = None) -> str:
     """
@@ -129,6 +178,74 @@ def resolve_relative_path(path: str, user_id: str) -> str:
     else:
         # Treat as relative to home directory
         return f"{home_path}/{path}"
+
+def _is_user_placeholder_segment(segment: str) -> bool:
+    """Return True when a path segment looks like a user-id placeholder."""
+    if not segment:
+        return False
+
+    normalized = segment.strip().lower()
+    placeholder_aliases = {
+        "username",
+        "{username}",
+        "<username>",
+        "user_id",
+        "{user_id}",
+        "<user_id>",
+        "userid",
+        "{userid}",
+        "<userid>",
+    }
+    if normalized in placeholder_aliases:
+        return True
+
+    # Backward compatibility for historic examples shown in tool docs/prompts.
+    if normalized == "user1@patricbrc.org":
+        return True
+
+    return False
+
+def _sanitize_workspace_browse_path(path: Optional[str], user_id: Optional[str]) -> Optional[str]:
+    """Clean common LLM path placeholders for workspace browsing."""
+    if path is None:
+        return None
+
+    cleaned = path.strip()
+    if not cleaned:
+        return None
+
+    is_absolute = cleaned.startswith("/")
+    segments = [segment for segment in cleaned.split("/") if segment]
+    had_placeholder_segment = any(_is_user_placeholder_segment(segment) for segment in segments)
+
+    # Remove placeholder segments in any common form.
+    segments = [segment for segment in segments if not _is_user_placeholder_segment(segment)]
+
+    # Collapse duplicate adjacent "home" segments.
+    collapsed = []
+    for segment in segments:
+        if segment == "home" and collapsed and collapsed[-1] == "home":
+            continue
+        collapsed.append(segment)
+    segments = collapsed
+
+    if not segments:
+        return None
+
+    # If placeholder cleanup detected placeholder-driven paths, always anchor to
+    # the authenticated user's home path.
+    if user_id and had_placeholder_segment:
+        if segments and segments[0] == "home":
+            suffix = "/".join(segments[1:])
+        else:
+            suffix = "/".join(segments)
+        base = get_user_home_path(user_id)
+        return f"{base}/{suffix}" if suffix else base
+
+    reconstructed = "/".join(segments)
+    if is_absolute:
+        reconstructed = f"/{reconstructed}"
+    return reconstructed
 
 def _get_file_registry_client(file_utilities_config: dict) -> Optional[MongoClient]:
     """Create or reuse a MongoDB client for session file lookups."""
@@ -444,10 +561,9 @@ def register_workspace_tools(
     async def workspace_browse_tool(
         token: Optional[str] = None,
         path: Optional[str] = None,
-        search: bool = False,
-        filename_search_terms: Optional[List[str]] = None,
-        file_extension: Optional[List[str]] = None,
-        file_types: Optional[List[str]] = None,
+        name_contains: Optional[Union[str, List[str]]] = None,
+        file_extensions: Optional[Union[str, List[str]]] = None,
+        workspace_types: Optional[Union[str, List[str]]] = None,
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         num_results: Optional[int] = 50
@@ -457,31 +573,23 @@ def register_workspace_tools(
         Args:
             token: Authentication token (optional - will use default if not provided)
             path: Path to inspect/search. IMPORTANT PATH FORMAT:
-                - Absolute paths MUST start with /{user_id}/home (e.g., /user1@patricbrc.org/home or /user1@patricbrc.org/home/subfolder)
+                - Absolute paths MUST start with /<user_id>/home (e.g., /<user_id>/home or /<user_id>/home/subfolder)
                 - Relative paths (e.g., "subfolder") are resolved relative to /{user_id}/home
                 - DO NOT include /workspace prefix - paths should be /{user_id}/home or relative paths
                 - If path is not provided or empty, defaults to user's home directory
-                - Examples: "/user1@patricbrc.org/home", "subfolder", "/user1@patricbrc.org/home/Genome Groups"
-            search: CRITICAL - Controls search behavior:
-                - search=True: RECURSIVE search through all subdirectories. Use this when:
-                    * Finding files across the entire workspace (e.g., "find all fastq files", "10 most recent files")
-                    * Searching by filename, extension, or type across multiple folders
-                    * You need to look beyond just the direct contents of one folder
-                - search=False: NON-RECURSIVE inspection of a single path. Use this when:
-                    * Listing direct contents of a specific folder only (one level)
-                    * Getting metadata of a single file or folder
-                    * You only want to see what's immediately in the target directory
-                EXAMPLES:
-                    * "Find all fastq files in my workspace" → search=True
-                    * "Show me the 10 most recent files" → search=True
-                    * "List contents of my home directory" → search=False
-                    * "What's in the Genome Groups folder?" → search=False
-            filename_search_terms: Words/terms that must appear IN the filename itself (AND logic). 
-                                   Use this ONLY to filter by text within the actual filename.
-            file_extension: File extensions to match (OR logic). Example: ["fastq", "fq"] finds .fastq OR .fq files.
-            file_types: Workspace object types to match (OR logic). Valid types include: "reads", "contigs", "genome_group", 
-                       "feature_group", "folder", "unspecified". Example: ["reads", "contigs"] finds reads OR contigs objects.
-                       Note: This is the BVBRC workspace metadata type, NOT filename text or extensions.
+                - Examples: "/<user_id>/home", "subfolder", "/<user_id>/home/Genome Groups"
+            This tool always uses automatic mode selection:
+                - Uses recursive search when filters are provided.
+                - Uses one-level listing when no filters are provided.
+            name_contains: Words/terms that must appear IN the filename itself (AND logic).
+            file_extensions: File extensions to match (OR logic). Example: ["fastq", "fq"] finds .fastq OR .fq files.
+            workspace_types: Workspace object types to match (OR logic). Supported types:
+                csv, diffexp_input_data, diffexp_input_metadata, doc, docx, embl,
+                feature_dna_fasta, feature_protein_fasta, genbank_file, gff, gif, graph, jpg,
+                json, nwk, pdf, phyloxml, png, pdb, ppt, pptx, reads, string, svg, tar_gz, tbi,
+                tsv, txt, unspecified, vcf, vcf_gz, wig, xls, xlsx, xml.
+                Important: workspace_types filters by workspace metadata type, while file_extensions
+                filters by filename suffix. They can overlap (for example, csv/json).
             sort_by: Optional sort field. Valid options: creation_time, name, size, type.
             sort_order: Optional sort direction. Valid options: asc, desc.
             num_results: Maximum number of results to return. Defaults to 50.
@@ -499,24 +607,43 @@ def register_workspace_tools(
             }
 
         user_id = extract_userid_from_token(auth_token)
-        resolved_path = resolve_relative_path(path, user_id)
+        sanitized_path = _sanitize_workspace_browse_path(path, user_id)
+        resolved_path = resolve_relative_path(sanitized_path, user_id)
 
         effective_num_results = 50 if num_results is None else num_results
+        normalized_name_contains = _normalize_string_or_list(name_contains)
+        normalized_workspace_types = _normalize_string_or_list(workspace_types)
+        normalized_extensions_raw = _normalize_string_or_list(file_extensions)
+        normalized_extensions = [ext.lstrip(".") for ext in (normalized_extensions_raw or []) if ext]
+
+        invalid_workspace_types = sorted(
+            set(normalized_workspace_types or []) - set(SUPPORTED_WORKSPACE_TYPES)
+        )
+        if invalid_workspace_types:
+            return {
+                "error": "Invalid workspace_types value(s)",
+                "errorType": "INVALID_PARAMETERS",
+                "details": {
+                    "invalid_workspace_types": invalid_workspace_types,
+                    "supported_workspace_types": SUPPORTED_WORKSPACE_TYPES
+                },
+                "source": "bvbrc-workspace"
+            }
 
         print(
-            f"Browsing workspace path: {resolved_path}, user_id: {user_id}, "
-            f"search: {search}, filename_search_terms: {filename_search_terms}, extension: {file_extension}, "
-            f"file_types: {file_types}, sort_by: {sort_by}, sort_order: {sort_order}, num_results: {effective_num_results}",
+            f"Browsing workspace path: {resolved_path}, user_id: {user_id}, original_path: {path}, "
+            f"name_contains: {normalized_name_contains}, file_extensions: {normalized_extensions}, "
+            f"workspace_types: {normalized_workspace_types}, sort_by: {sort_by}, sort_order: {sort_order}, "
+            f"num_results: {effective_num_results}",
             file=sys.stderr
         )
         return await workspace_browse(
             api=api,
             token=auth_token,
             path=resolved_path,
-            search=search,
-            filename_search_terms=filename_search_terms,
-            file_extension=file_extension,
-            file_types=file_types,
+            filename_search_terms=normalized_name_contains,
+            file_extension=normalized_extensions,
+            file_types=normalized_workspace_types,
             sort_by=sort_by,
             sort_order=sort_order,
             num_results=effective_num_results,
