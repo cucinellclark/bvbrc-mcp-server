@@ -172,22 +172,82 @@ def _contains_solr_syntax(query: str) -> bool:
     return any(re.search(pattern, query) for pattern in solr_patterns)
 
 
-# Common stopwords to exclude from keyword queries
+# Stopwords to exclude from keyword queries
 STOPWORDS = {
-    "a", "an", "the", "from", "to", "in", "on", "at", "by", "for", "with", 
-    "of", "and", "or", "but", "is", "are", "was", "were", "be", "been", 
-    "being", "have", "has", "had", "do", "does", "did", "will", "would", 
-    "should", "could", "may", "might", "must", "can", "this", "that", 
-    "these", "those", "i", "you", "he", "she", "it", "we", "they", "what",
-    "which", "who", "when", "where", "why", "how", "count", "counts", "total", "number",
-    "type", "types"
+    # articles & determiners
+    "a", "an", "the", "this", "that", "these", "those", "each", "every", "either", "neither",
+
+    # prepositions
+    "from", "to", "in", "on", "at", "by", "for", "with", "of", "about", "against",
+    "between", "into", "through", "during", "before", "after", "above", "below",
+    "over", "under", "within", "without", "across", "per",
+
+    # conjunctions
+    "and", "or", "but", "nor", "yet", "so", "while", "although", "because", "if",
+
+    # verbs (auxiliary / common)
+    "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "having",
+    "do", "does", "did", "doing",
+    "will", "would", "shall", "should",
+    "can", "could", "may", "might", "must",
+
+    # pronouns
+    "i", "me", "my", "mine",
+    "you", "your", "yours",
+    "he", "him", "his",
+    "she", "her", "hers",
+    "it", "its",
+    "we", "us", "our", "ours",
+    "they", "them", "their", "theirs",
+
+    # interrogatives
+    "what", "which", "who", "whom", "whose",
+    "when", "where", "why", "how",
+
+    # quantifiers & comparatives
+    "some", "any", "all", "none", "many", "much", "few", "less", "more", "most",
+    "several", "such", "same", "other", "another",
+
+    # numbers & counting terms
+    "count", "counts", "total", "number", "numbers", "amount", "average", "sum",
+
+    # generic descriptors
+    "type", "types", "kind", "kinds", "example", "examples", "case", "cases"
 }
 
 # Custom domain-specific stopwords to exclude
 CUSTOM_STOPWORDS = {
-    "genomes", "genome", "subtype", "year", "id", "summary", "bv-brc", "taxa", "bvbrc",
-    "describe","feature", "genes", "related", "find", "all", "features", "country", "countries",
-    "product", "description"
+    # genome & taxonomy boilerplate
+    "genome", "genomes", "genomic", "taxa", "taxon", "species", "strain", "strains",
+    "subtype", "clade", "lineage", "serotype",
+
+    # identifiers & metadata
+    "id", "ids", "accession", "accessions", "identifier", "identifiers",
+    "version", "versions", "release", "date", "year",
+
+    # database / platform terms
+    "bv-brc", "bvbrc", "database", "platform", "resource", "portal",
+    "dataset", "datasets", "collection", "collections",
+
+    # feature & annotation noise
+    "feature", "features", "annotation", "annotations", "annotated",
+    "gene", "genes", "proteins", "product", "products",
+    "function", "functions",
+
+    # search / UI / reporting terms
+    "find", "search", "query", "results", "result",
+    "record", "records", "entry", "entries",
+    "summary", "description", "describe", "details",
+
+    # geography boilerplate
+    "country", "countries", "location", "locations", "region", "regions",
+
+    # relationship fluff
+    "related", "associated", "including", "includes", "based", "using",
+
+    # overly generic science words
+    "data", "information", "analysis", "study", "studies", "sample", "samples"
 }
 
 # Normalize plural/variant forms to canonical terms for consistent search
@@ -391,20 +451,10 @@ def _apply_collection_rql_additions(collection: str, rql_query: str, **ctx) -> s
 def _build_rql_replay_query(rql_query: str, collection: Optional[str] = None, limit: int = 100) -> str:
     """
     Build a URL-safe RQL replay string for BV-BRC links.
-    Format: ?{query}&select(field1,field2,...) when config defines default fields.
+    Format: ?{query} — select fields are not added to RQL (they remain in Solr only).
     """
     encoded_rql = quote(str(rql_query or ""), safe="(),:*")
-    out = f"?{encoded_rql}"
-    if collection:
-        select_fields = _get_select_fields_for_collection(collection)
-        if select_fields:
-            allowed = set(get_collection_fields(collection))
-            if allowed:
-                select_fields = [f for f in select_fields if f in allowed]
-            if select_fields:
-                fields_str = ",".join(select_fields)
-                out = f"{out}&select({fields_str})"
-    return out
+    return f"?{encoded_rql}"
 
 
 def convert_json_to_tsv(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -969,6 +1019,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         "value": count_value,
                         "count": count_value,
                         "numFound": count_value,
+                        "source": "bvbrc-mcp-data",
                         "call": {
                             "tool": "bvbrc_search_data",
                             "backend_method": "data_functions.query_direct",
@@ -1059,6 +1110,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         "count": result.get("count"),
                         "numFound": result.get("numFound"),
                         "nextCursorId": result.get("nextCursorId"),
+                        "source": "bvbrc-mcp-data",
                         "call": {
                             "tool": "bvbrc_search_data",
                             "backend_method": "data_functions.query_direct",
@@ -1083,6 +1135,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                 result["tsv"] = conversion_result["tsv"]
                 return {
                     **result,
+                    "source": "bvbrc-mcp-data",
                     "call": {
                         "tool": "bvbrc_search_data",
                         "backend_method": "data_functions.query_direct",
