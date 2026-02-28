@@ -8,15 +8,6 @@
       "timeout": 30000,
       "description": "Provides access to BV-BRC services, workspace and data",
       "disabled": false
-    },
-    "internal_server": {
-      "name": "Internal MCP Server",
-      "url": "http://140.221.78.67:8054",
-      "type": "mcp",
-      "auth": null,
-      "timeout": 30000,
-      "description": "Provides access to internal services like code execution and rag databases",
-      "disabled": true
     }
   },
   "global_settings": {
@@ -24,7 +15,7 @@
     "connection_retry_delay": 5000,
     "tool_execution_timeout": 60000,
     "enable_tool_streaming": true,
-    "token_server_allowlist": ["bvbrc_server", "internal_server"],
+    "token_server_allowlist": ["bvbrc_server"],
     "rag_max_docs": 10,
     "rag_tools": [
       "helpdesk_service_usage"

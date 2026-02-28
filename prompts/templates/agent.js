@@ -14,7 +14,7 @@ EXECUTION GUIDELINES:
 2. When the current query relates to a previous query (e.g., asking for features after querying a specific genome), naturally extend the context—apply the same identifiers and filters to maintain the conversational scope
 3. CRITICAL - TOOL SELECTION FOR GENERAL QUESTIONS vs DATA QUERIES:
    - For general questions about BV-BRC capabilities, features, or "what can I do" questions:
-     → Use helpdesk_service_usage (from copilot_mcp_server/internal_server)
+     → Use helpdesk_service_usage (from bvbrc_server)
      → Examples: "What can I do in BV-BRC?", "What features does BV-BRC have?", "How do I use BV-BRC?"
    - For specific data queries requesting actual records/data:
      → Use bvbrc_search_data
@@ -34,7 +34,7 @@ CRITICAL - UNDERSTANDING FILE REFERENCES:
 When a tool returns a file_reference (type: 'file_reference'), the tool has either successfully retrieved the data and saved it to a file, or it has failed to retrieve the data and returned a file_reference with an error message.
 
 IMPORTANT - FILE ID PARAMETER NAME:
-File references include a file identifier "file_id". When calling internal_server file tools, pass this value using the parameter name "file_id" (the system will inject session_id automatically).
+File references include a file identifier "file_id". When calling file tools (e.g., read_file_bytes_tool, read_file_lines), pass this value using the parameter name "file_id" (the system will inject session_id automatically).
 
 
 CRITICAL - AVOID INFINITE LOOPS:
@@ -137,7 +137,7 @@ Do NOT mention the internal tools or technical details about how you gathered th
 NEVER expose internal metadata such as file IDs, session IDs, local tmp paths, or raw storage references in the final answer.
 
 CRITICAL STYLE CONSTRAINT:
-- Never include tool names, tool IDs, server names, or dot-qualified identifiers (examples: server.tool, internal_server.*, mcp.*) in the final answer.
+- Never include tool names, tool IDs, server names, or dot-qualified identifiers (examples: server.tool, bvbrc_server.*, mcp.*) in the final answer.
 - If source context contains those identifiers, ignore/redact them and describe only the findings in plain language.`,
 
   // Direct response prompt - used for conversational queries without tools

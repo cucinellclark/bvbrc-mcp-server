@@ -207,7 +207,8 @@ class McpStreamHandler {
               try {
                 parsed = JSON.parse(data);
               } catch (parseErr) {
-                console.log(`[MCP Stream] Failed to parse as JSON:`, {
+                log.warn('Failed to parse stream data as JSON', {
+                  toolId,
                   error: parseErr.message,
                   dataPreview: data.substring(0, 200)
                 });
@@ -248,7 +249,8 @@ class McpStreamHandler {
                   try {
                     batch = JSON.parse(parsed.result);
                   } catch (innerErr) {
-                    console.log(`[MCP Stream] Failed to parse result JSON string:`, {
+                    log.warn('Failed to parse result JSON string', {
+                      toolId,
                       error: innerErr.message,
                       resultPreview: parsed.result.substring(0, 200)
                     });
@@ -273,7 +275,8 @@ class McpStreamHandler {
                 batch = parsed;
               } else {
                 // Unknown format, log and skip
-                console.log(`[MCP Stream] Unknown data format, skipping:`, {
+                log.warn('Unknown stream data format, skipping', {
+                  toolId,
                   keys: Object.keys(parsed || {}),
                   hasJsonrpc: parsed?.jsonrpc,
                   hasResult: parsed?.result !== undefined,
@@ -284,7 +287,8 @@ class McpStreamHandler {
 
               // Validate batch structure
               if (!batch || typeof batch !== 'object') {
-                console.log(`[MCP Stream] Invalid batch structure:`, {
+                log.warn('Invalid batch structure', {
+                  toolId,
                   type: typeof batch,
                   isNull: batch === null
                 });
@@ -301,8 +305,9 @@ class McpStreamHandler {
                 error: errorMessage || 'MCP tool returned an error',
                 mcpError: true
               };
-              console.log(`[MCP Stream] FastMCP error received:`, {
-                error: errorMessage,
+              log.error('FastMCP error received', {
+                toolId,
+                errorMessage,
                 fullError: batch
               });
               log.error('FastMCP error received', { error: errorMessage });
@@ -316,7 +321,8 @@ class McpStreamHandler {
                 error: batch.error,
                 batchNumber: batch.batchNumber
               };
-              console.log(`[MCP Stream] Error batch received:`, {
+              log.error('Error batch received', {
+                toolId,
                 error: batch.error,
                 batchNumber: batch.batchNumber
               });
@@ -330,7 +336,8 @@ class McpStreamHandler {
               batchCount++;
               lastBatch = batch;
 
-              console.log(`[MCP Stream] Received batch ${batchCount}:`, {
+              log.debug(`Received batch ${batchCount}`, {
+                toolId,
                 batchNumber: batch.batchNumber,
                 count: batch.count,
                 cumulativeCount: batch.cumulativeCount,
@@ -339,7 +346,7 @@ class McpStreamHandler {
                 resultsLength: batch.results?.length || 0,
                 totalBatchesSoFar: batchCount,
                 batchKeys: Object.keys(batch),
-                rawBatch: JSON.stringify(batch).substring(0, 200) // First 200 chars for debugging
+                rawBatch: JSON.stringify(batch).substring(0, 200)
               });
 
               log.debug(`Received batch ${batchCount}`, {
@@ -365,12 +372,8 @@ class McpStreamHandler {
             } catch (parseError) {
               // Only log if it's not an empty line or event line
               if (trimmedLine && !trimmedLine.startsWith('event:')) {
-                console.log(`[MCP Stream] Failed to parse batch:`, {
-                  error: parseError.message,
-                  line: trimmedLine.substring(0, 100), // First 100 chars
-                  lineLength: trimmedLine.length
-                });
                 log.warn('Failed to parse batch', { 
+                  toolId,
                   error: parseError.message, 
                   line: trimmedLine.substring(0, 100),
                   lineLength: trimmedLine.length
@@ -406,7 +409,7 @@ class McpStreamHandler {
             totalResults: lastBatch?.cumulativeCount || 0,
             mcpError: error.mcpError || false
           };
-          console.log(`[MCP Stream] Stream ended with error:`, errorResult);
+          log.error('Stream ended with error', { toolId, ...errorResult });
           resolve(errorResult);
         } else if (batches.length === 0) {
           if (finalToolResult) {
@@ -414,7 +417,7 @@ class McpStreamHandler {
             return;
           }
           // No batches received
-          console.log(`[MCP Stream] Stream ended with no batches`);
+          log.warn('Stream ended with no batches', { toolId });
           resolve({
             error: 'No data batches received from stream',
             results: [],
@@ -468,16 +471,25 @@ class McpStreamHandler {
     // Extract all results from batches - merge all results arrays
     const allResults = [];
     for (const batch of batches) {
-      const batchText = batch.content[0].text;
-      const textJson = JSON.parse(batchText);
-      for (const br of textJson) {
-        const batchRecord = JSON.parse(br);
-        if (batchRecord.results && Array.isArray(batchRecord.results)) {
-          allResults.push(...batchRecord.results);
+      try {
+        const batchText = batch.content[0].text;
+        const textJson = JSON.parse(batchText);
+        for (const br of textJson) {
+          const batchRecord = JSON.parse(br);
+          if (batchRecord.results && Array.isArray(batchRecord.results)) {
+            allResults.push(...batchRecord.results);
+          }
         }
+      } catch (mergeErr) {
+        log.error('Failed to merge batch', {
+          error: mergeErr.message,
+          batchKeys: Object.keys(batch || {}),
+          hasContent: !!batch?.content,
+          contentLength: batch?.content?.length
+        });
       }
     }
-    console.log(`allResults.length: ${allResults.length}`);
+    log.debug('Merged batch results', { totalResults: allResults.length });
 
     const lastBatch = batches[batches.length - 1];
 

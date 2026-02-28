@@ -529,6 +529,8 @@ def _read_local_file_byte_range(file_path: str, start_byte: int, max_bytes: int)
         }
 
     max_bytes = min(max_bytes, 1024 * 1024)
+    total_size = os.path.getsize(file_path)
+
     with open(file_path, "rb") as f:
         f.seek(start_byte)
         chunk = f.read(max_bytes)
@@ -539,12 +541,18 @@ def _read_local_file_byte_range(file_path: str, start_byte: int, max_bytes: int)
         base64_content = base64.b64encode(chunk).decode("utf-8")
         data = f"<base64_encoded_data>{base64_content}</base64_encoded_data>"
 
+    bytes_read = len(chunk)
+    next_start = start_byte + bytes_read
+    is_complete = next_start >= total_size
+
     return {
         "data": data,
         "start_byte": start_byte,
-        "bytes_read": len(chunk),
+        "bytes_read": bytes_read,
+        "total_size": total_size,
+        "is_complete": is_complete,
         "requested_max_bytes": max_bytes,
-        "next_start_byte": start_byte + len(chunk),
+        "next_start_byte": next_start if not is_complete else None,
         "source_type": "local",
         "source": "bvbrc-workspace"
     }
@@ -755,7 +763,7 @@ def register_workspace_tools(
         metadata = _build_workspace_metadata(result, resolved_path)
         return metadata if include_internal_fields else _sanitize_metadata_for_assistant(metadata)
 
-    @mcp.tool()
+    # @mcp.tool()
     async def workspace_download_file_tool(token: Optional[str] = None, path: str = None, output_file: Optional[str] = None, return_data: bool = False) -> dict:
         """Download a file from the workspace.
 
@@ -799,21 +807,32 @@ def register_workspace_tools(
 
         This is the canonical tool for file-byte access:
         - For quick preview, use defaults (start_byte=0, max_bytes=8192)
-        - For paging, increase start_byte to read the next window
-        - For local session files, provide session_id + file_id
-        - For workspace files, provide path (with token if needed)
+        - For paging, set start_byte to the next_start_byte value from the previous response
+        - For local session files, provide file_id (session_id is auto-injected)
+        - For workspace files, provide path
+
+        IMPORTANT - Paging guidance:
+        - The response includes is_complete (bool) and next_start_byte (int or null).
+        - If is_complete is true, you have read the entire file. Do NOT call this tool
+          again with the same path/file_id.
+        - If is_complete is false, use next_start_byte as start_byte to read the next window.
+        - total_size (when available) shows the full file size in bytes.
 
         Args:
             token: Authentication token (optional - will use default if not provided)
-            path: Workspace path (or absolute local path under configured session_base_path).
-            session_id: Local Copilot session ID (use with file_id for local reads).
-            file_id: Local Copilot file ID (use with session_id for local reads).
+            path: Workspace path (e.g. /user@domain/home/file.txt) for reading files from
+                the user's cloud workspace.
+            session_id: Local Copilot session ID (auto-injected by system; do NOT set).
+            file_id: Local Copilot file ID (use for reading local session files).
             start_byte: Zero-based starting byte offset (default: 0).
             max_bytes: Maximum bytes to read (default: 8192, max: 1048576).
         """
         try:
-            if session_id or file_id:
-                if not session_id or not file_id:
+            # Local session file mode: only enter when file_id is explicitly provided.
+            # Note: session_id is auto-injected by the system on every call, so we
+            # cannot use its presence alone to decide the routing.
+            if file_id:
+                if not session_id:
                     return {
                         "error": True,
                         "errorType": "INVALID_PARAMETERS",

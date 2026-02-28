@@ -215,8 +215,8 @@ function throwIfCancelled(context = {}, checkpoint = 'unknown') {
 /**
  * Apply server-side overrides for parameters that should NOT be controlled by the LLM.
  *
- * Today this is primarily used to bind "internal_server.*" file tools to the current
- * Copilot chat session. Those tools operate on files stored under:
+ * Used to bind file tools to the current Copilot chat session.
+ * Tools that accept session_id operate on files stored under:
  *   /tmp/copilot/sessions/{session_id}/downloads
  *
  * Letting the LLM supply session_id is fragile (it may invent "default").
@@ -233,7 +233,7 @@ function applySystemParameterOverrides(toolId, parameters = {}, context = {}, lo
     debug: (...args) => console.debug(...args)
   };
 
-  // Check if tool schema accepts session_id (for any server, not just internal_server)
+  // Check if tool schema accepts session_id and inject from trusted context
   if (toolId && context?.session_id && toolDef?.inputSchema?.properties) {
     const acceptsSessionId = !!(
       Object.prototype.hasOwnProperty.call(toolDef.inputSchema.properties, 'session_id')
@@ -1200,7 +1200,7 @@ async function executeMcpTool(toolId, parameters = {}, authToken = null, context
 
     const toolPolicy = getToolPolicy(toolId);
 
-    // Never trust the LLM with certain IDs (e.g., internal_server session_id)
+    // Never trust the LLM with session_id; inject from trusted execution context
     // Apply overrides AFTER resolving tool definition so we can honor the schema.
     // Include authToken in context for parameter overrides
     const contextWithAuth = {
@@ -1348,14 +1348,18 @@ async function executeMcpTool(toolId, parameters = {}, authToken = null, context
             });
           } catch (parseError) {
             log.error('Failed to parse SSE data line as JSON', {
+              toolId,
               error: parseError.message,
               dataLinePreview: dataLine.substring(0, 200)
             });
+            throw new Error(`Failed to parse tool response: ${parseError.message}`);
           }
         } else {
-          log.warn('No data line found in SSE response', {
+          log.error('No data line found in SSE response', {
+            toolId,
             responsePreview: responseData.substring(0, 200)
           });
+          throw new Error(`Tool returned unparseable response (no SSE data line found)`);
         }
       }
     }

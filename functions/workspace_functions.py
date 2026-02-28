@@ -915,12 +915,34 @@ async def workspace_read_range(api: JsonRpcCaller, path: str, token: str, start_
                 base64_content = base64.b64encode(content).decode("utf-8")
                 data = f"<base64_encoded_data>{base64_content}</base64_encoded_data>"
 
+            bytes_read = len(content)
+            next_start = start_byte + bytes_read
+
+            # Try to determine total file size from response headers
+            total_size = None
+            content_range = response.headers.get("content-range", "")
+            if "/" in content_range:
+                # Format: "bytes 0-8191/12345"
+                try:
+                    total_size = int(content_range.split("/")[-1])
+                except (ValueError, IndexError):
+                    pass
+            if total_size is None and response.status_code == 200:
+                # Full response (no range), total size is content length
+                total_size = bytes_read
+
+            is_complete = (
+                total_size is not None and next_start >= total_size
+            ) or bytes_read < max_bytes
+
             return {
                 "data": data,
                 "start_byte": start_byte,
-                "bytes_read": len(content),
+                "bytes_read": bytes_read,
+                "total_size": total_size,
+                "is_complete": is_complete,
                 "requested_max_bytes": max_bytes,
-                "next_start_byte": start_byte + len(content),
+                "next_start_byte": next_start if not is_complete else None,
                 "source": "bvbrc-workspace"
             }
     except Exception as e:

@@ -49,7 +49,7 @@ function getToolPromptEnhancements(toolIds) {
       return;
     }
 
-    // Check for partial match (e.g., "helpdesk_service_usage" matches "internal_server.helpdesk_service_usage")
+    // Check for partial match (e.g., "helpdesk_service_usage" matches "bvbrc_server.helpdesk_service_usage")
     const toolName = toolId.includes('.') ? toolId.split('.').pop() : toolId;
     if (enhancements[toolName]) {
       enhancementTexts.push(enhancements[toolName]);
@@ -1644,7 +1644,7 @@ async function planNextAction(query, systemPrompt, executionTrace, toolResults, 
                   errorMessage: value.errorMessage,
                   local_tmp_path: value.filePath || null,
                   message: 'Tool returned an error payload saved to a local /tmp session file.',
-                  note: 'Tool returned an error payload saved to file. Inspect it with internal_server file tools and adjust inputs/tool choice.'
+                  note: 'Tool returned an error payload saved to file. Inspect it with read_file_bytes_tool or read_file_lines and adjust inputs/tool choice.'
                 } : {
                   type: 'FILE_SAVED',
                   file_id: value.file_id,

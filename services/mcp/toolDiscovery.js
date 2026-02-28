@@ -263,9 +263,8 @@ async function writeToolsForPrompt(manifest) {
           const required = tool.inputSchema.required?.includes(paramName) ? ' (required)' : '';
           const description = paramSpec.description || '';
           // Hide/annotate parameters that the system will inject server-side.
-          // In particular, internal_server.* file tools operate on Copilot session files and
-          // MUST be bound to the trusted chat session_id, not an LLM-supplied value.
-          if (toolId.startsWith('internal_server.') && paramName === 'session_id') {
+          // session_id is always bound to the trusted chat session, not an LLM-supplied value.
+          if (paramName === 'session_id') {
             promptText += `- ${paramName}${required}: ${paramSpec.type} - (auto-provided by system; do NOT set)\n`;
           } else {
             promptText += `- ${paramName}${required}: ${paramSpec.type} - ${description}\n`;

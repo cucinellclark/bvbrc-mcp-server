@@ -432,7 +432,7 @@ class FileManager {
         console.log(`[FileManager] Updated metadata in database for session ${sessionId}`);
 
         // IMPORTANT: Keep an on-disk metadata.json in sync as well.
-        // The internal_server "file utilities" MCP tools typically operate on:
+        // File utility MCP tools may operate on:
         //   /tmp/copilot/sessions/{session_id}/metadata.json
         // and won't see Mongo-only metadata.
         try {
