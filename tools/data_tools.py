@@ -220,7 +220,15 @@ STOPWORDS = {
 CUSTOM_STOPWORDS = {
     # genome & taxonomy boilerplate
     "genome", "genomes", "genomic", "taxa", "taxon", "species", "strain", "strains",
-    "subtype", "clade", "lineage", "serotype",
+    "subtype", "clade", "lineage", "serotype", "pathways", "pathway", "subsystems", "subsystem",
+    "genus", "taxonomy", "taxonomic", "taxonomies", "taxonomy_id", "taxonomy_ids", "taxonomy_name", "taxonomy_names",
+    "protein", "proteins", "protein_id", "protein_ids", "protein_name", "protein_names",
+    "structures", "structure", "structure_id", "structure_ids", "structure_name", "structure_names",
+    "domains", "domain", "domain_id", "domain_ids", "domain_name", "domain_names",
+    "families", "family", "family_id", "family_ids", "family_name", "family_names",
+    "clusters", "cluster", "cluster_id", "cluster_ids", "cluster_name", "cluster_names",
+    "clusters", "cluster", "cluster_id", "cluster_ids", "cluster_name", "cluster_names",
+    "specialty", "sp_gene"
 
     # identifiers & metadata
     "id", "ids", "accession", "accessions", "identifier", "identifiers",
@@ -228,7 +236,7 @@ CUSTOM_STOPWORDS = {
 
     # database / platform terms
     "bv-brc", "bvbrc", "database", "platform", "resource", "portal",
-    "dataset", "datasets", "collection", "collections",
+    "dataset", "datasets", "collection", "collections", 
 
     # feature & annotation noise
     "feature", "features", "annotation", "annotations", "annotated",
@@ -238,7 +246,7 @@ CUSTOM_STOPWORDS = {
     # search / UI / reporting terms
     "find", "search", "query", "results", "result",
     "record", "records", "entry", "entries",
-    "summary", "description", "describe", "details",
+    "summary", "description", "describe", "details", "summarize"
 
     # geography boilerplate
     "country", "countries", "location", "locations", "region", "regions",
