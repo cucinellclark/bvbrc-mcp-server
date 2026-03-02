@@ -78,6 +78,10 @@
       "genome_ids": [],
       "genome_groups": []
     },
+    "required_one_of": [
+      "genome_ids",
+      "genome_groups"
+    ],
     "required_outputs": []
   },
   "date": {
@@ -224,11 +228,13 @@
         "auto",
         "unicycler",
         "flye",
+        "meta-flye",
         "canu",
         "spades",
         "meta-spades",
         "plasmid-spades",
-        "single-cell"
+        "single-cell",
+        "megahit"
       ]
     },
     "required_one_of": [

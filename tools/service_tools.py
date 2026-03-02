@@ -33,6 +33,11 @@ from functions.workflow_functions import (
     generate_workflow_manifest_internal,
     create_and_execute_workflow_internal,
 )
+from functions.service_plan_functions import (
+    plan_genome_assembly_fn,
+    plan_genome_annotation_fn,
+    plan_comparative_systems_fn,
+)
 from typing import Any, List, Dict, Optional, Union
 
 
@@ -387,9 +392,196 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
 
 
 
-    # Workflow Tools
+    # ---------------------------------------------------------------
+    # Service-Specific Plan Tools (hybrid: LLM params + deterministic validation)
+    # ---------------------------------------------------------------
 
-    @mcp.tool(name="plan_workflow")
+    @mcp.tool(name="plan_genome_assembly")
+    async def plan_genome_assembly(
+        params: Dict[str, Any] = None,
+        token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Plan a genome assembly workflow from sequencing reads.
+
+        Validates parameters, applies defaults, and persists a single-step
+        workflow manifest to the workflow engine (status='planned').
+
+        Required input (at least one):
+          - params.paired_end_libs: list of paired-end read library objects
+          - params.single_end_libs: list of single-end read file paths
+          - params.srr_ids: list of SRA Run accession IDs (e.g., ["SRR12345678"])
+
+        Optional parameters (with defaults):
+          - params.recipe: Assembly algorithm (default: "auto")
+              Options: auto, unicycler, flye, meta-flye, canu, spades,
+                       meta-spades, plasmid-spades, single-cell, megahit
+          - params.trim: Trim reads before assembly (default: false)
+          - params.output_path: Workspace output directory (auto-generated if omitted)
+          - params.output_file: Output basename (auto-generated if omitted)
+
+        Args:
+            params: Dictionary of assembly parameters (see above)
+            token: Authentication token (optional)
+
+        Returns:
+            On success: workflow_id, status, parameters, auto_corrections
+            On error: error message with hints for the missing/invalid parameters
+        """
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_FAILED",
+                "source": "bvbrc-service"
+            }
+
+        user_id = extract_userid_from_token(auth_token)
+        if not user_id:
+            return {
+                "error": "Could not extract user ID from token",
+                "errorType": "AUTHENTICATION_FAILED",
+                "source": "bvbrc-service"
+            }
+
+        if not params or not isinstance(params, dict):
+            return {
+                "error": "params parameter is required and must be a dictionary",
+                "errorType": "INVALID_PARAMETERS",
+                "hint": "Pass assembly parameters as a dictionary, e.g. params={\"srr_ids\": [\"SRR12345678\"]}",
+                "source": "bvbrc-service"
+            }
+
+        return await plan_genome_assembly_fn(
+            user_id=user_id,
+            auth_token=auth_token,
+            params=params,
+        )
+
+    @mcp.tool(name="plan_genome_annotation")
+    async def plan_genome_annotation(
+        params: Dict[str, Any] = None,
+        token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Plan a genome annotation workflow for assembled contigs/genomes.
+
+        Validates parameters, applies defaults, and persists a single-step
+        workflow manifest to the workflow engine (status='planned').
+
+        Required parameters:
+          - params.contigs: Workspace path to contigs/FASTA file (e.g., "/user/home/contigs.fasta")
+          - params.scientific_name: Scientific name of the organism (e.g., "Escherichia coli")
+
+        Optional parameters (with defaults):
+          - params.taxonomy_id: NCBI Taxonomy ID (integer)
+          - params.code: Genetic code (default: 0). Options: 0, 1, 4, 11, 25
+          - params.domain: Domain (default: "auto"). Options: Bacteria, Archaea, Viruses, auto
+          - params.recipe: Annotation recipe (optional)
+          - params.output_path: Workspace output directory (auto-generated if omitted)
+          - params.output_file: Output basename (auto-generated if omitted)
+
+        Args:
+            params: Dictionary of annotation parameters (see above)
+            token: Authentication token (optional)
+
+        Returns:
+            On success: workflow_id, status, parameters, auto_corrections
+            On error: error message with hints for the missing/invalid parameters
+        """
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_FAILED",
+                "source": "bvbrc-service"
+            }
+
+        user_id = extract_userid_from_token(auth_token)
+        if not user_id:
+            return {
+                "error": "Could not extract user ID from token",
+                "errorType": "AUTHENTICATION_FAILED",
+                "source": "bvbrc-service"
+            }
+
+        if not params or not isinstance(params, dict):
+            return {
+                "error": "params parameter is required and must be a dictionary",
+                "errorType": "INVALID_PARAMETERS",
+                "hint": "Pass annotation parameters as a dictionary, e.g. params={\"contigs\": \"/user/home/contigs.fasta\", \"scientific_name\": \"Escherichia coli\"}",
+                "source": "bvbrc-service"
+            }
+
+        return await plan_genome_annotation_fn(
+            user_id=user_id,
+            auth_token=auth_token,
+            params=params,
+        )
+
+    @mcp.tool(name="plan_comparative_systems")
+    async def plan_comparative_systems(
+        params: Dict[str, Any] = None,
+        token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Plan a comparative systems analysis workflow to compare pathways,
+        subsystems, and protein families across genomes.
+
+        Validates parameters, applies defaults, and persists a single-step
+        workflow manifest to the workflow engine (status='planned').
+
+        Required input (at least one):
+          - params.genome_ids: List of BV-BRC genome IDs (e.g., ["83332.12", "511145.12"])
+          - params.genome_groups: List of workspace paths to genome groups
+
+        Optional parameters:
+          - params.output_path: Workspace output directory (auto-generated if omitted)
+          - params.output_file: Output basename (auto-generated if omitted)
+
+        Args:
+            params: Dictionary of comparative systems parameters (see above)
+            token: Authentication token (optional)
+
+        Returns:
+            On success: workflow_id, status, parameters, auto_corrections
+            On error: error message with hints for the missing/invalid parameters
+        """
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_FAILED",
+                "source": "bvbrc-service"
+            }
+
+        user_id = extract_userid_from_token(auth_token)
+        if not user_id:
+            return {
+                "error": "Could not extract user ID from token",
+                "errorType": "AUTHENTICATION_FAILED",
+                "source": "bvbrc-service"
+            }
+
+        if not params or not isinstance(params, dict):
+            return {
+                "error": "params parameter is required and must be a dictionary",
+                "errorType": "INVALID_PARAMETERS",
+                "hint": "Pass parameters as a dictionary, e.g. params={\"genome_ids\": [\"83332.12\"]}",
+                "source": "bvbrc-service"
+            }
+
+        return await plan_comparative_systems_fn(
+            user_id=user_id,
+            auth_token=auth_token,
+            params=params,
+        )
+
+    # ---------------------------------------------------------------
+    # Legacy Workflow Tools (disabled - replaced by service-specific plan tools above)
+    # ---------------------------------------------------------------
+
+    # @mcp.tool(name="plan_workflow")  # DISABLED: replaced by plan_genome_assembly, plan_genome_annotation, plan_comparative_systems
     async def plan_workflow(
         user_query: str = None,
         token: Optional[str] = None,
@@ -578,7 +770,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 "source": "bvbrc-service"
             }
 
-    @mcp.tool(name="submit_workflow")
+    # @mcp.tool(name="submit_workflow")  # DISABLED: submission is now user-initiated via the Copilot API
     async def submit_workflow(
         workflow_id: Optional[str] = None,
         workflow_json: Optional[Dict[str, Any]] = None,
