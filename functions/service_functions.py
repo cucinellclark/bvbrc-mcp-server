@@ -2,6 +2,7 @@ from common.json_rpc import JsonRpcCaller
 from typing import List, Dict, Any, Optional
 import asyncio
 import uuid
+import time
 import json
 import os
 import sys
@@ -71,9 +72,9 @@ def _generate_numerical_uuid() -> int:
 def _set_default_output_paths(user_id: str, app_name: str, output_path: str = None, output_file: str = None):
     """Helper function to set default output_path and output_file values."""
     if output_path is None:
-        output_path = '/' + user_id + '/CopilotDevWorkflows'
+        output_path = '/' + user_id + '/home/CopilotWorkflows'
     if output_file is None:
-        output_file = app_name + '_' + str(uuid.uuid4())
+        output_file = app_name + '_' + time.strftime('%Y%m%d_%H%M%S')
     return output_path, output_file
 
 def _filter_none_params(params: Dict[str, Any]) -> Dict[str, Any]:

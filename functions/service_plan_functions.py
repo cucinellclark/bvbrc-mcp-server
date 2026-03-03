@@ -67,7 +67,7 @@ def _default_output(user_id: str, app_api_name: str, output_path: Optional[str],
     if not output_file:
         output_file = f"{app_api_name}_{time.strftime('%Y%m%d_%H%M%S')}"
     if not output_path:
-        output_path = f"/{user_id}/home/{output_file}"
+        output_path = f"/{user_id}/home/CopilotWorkflows"
     else:
         # Ensure path is rooted to user workspace
         if not output_path.startswith('/'):
