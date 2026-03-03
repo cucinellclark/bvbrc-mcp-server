@@ -526,7 +526,11 @@ async def generate_workflow_with_services(
             workspace_str = f"\n\nWORKSPACE ITEMS (available for reference):\n{json.dumps(workspace_items, indent=2)}\n\nThese files are in the user's workspace and may be relevant to the query."
 
         # Load parameter generation system prompt
-        system_prompt = load_prompt_file('workflow_parameter_generation.txt')
+        system_prompt = load_prompt_file('workflow_parameter_generation.txt').replace("__USER_ID__", user_id)
+
+        # Replace __USER_ID__ in service specs (descriptions loaded via get_service_info from prompts/services/*.txt)
+        for spec in selected_service_specs:
+            spec["description"] = spec["description"].replace("__USER_ID__", user_id)
 
         # Build focused user prompt with ONLY selected service details
         session_context = ""
@@ -607,21 +611,16 @@ PREVIOUS WORKFLOW (fix only what is needed to address validation errors):
                 user_id
             )
 
-        # Update workspace_output_folder with actual user_id
-        if 'base_context' in workflow_manifest:
-            if 'workspace_output_folder' in workflow_manifest['base_context']:
-                workspace_path = workflow_manifest['base_context']['workspace_output_folder']
-                workflow_manifest['base_context']['workspace_output_folder'] = workspace_path.replace('/USERNAME/', f'/{user_id}/')
-            else:
-                workflow_manifest['base_context']['workspace_output_folder'] = f"/{user_id}/home/CopilotWorkflows"
-            # Remove workspace_root if it exists
-            if 'workspace_root' in workflow_manifest['base_context']:
-                del workflow_manifest['base_context']['workspace_root']
-        else:
-            workflow_manifest['base_context'] = {
-                "base_url": "https://www.bv-brc.org",
-                "workspace_output_folder": f"/{user_id}/home/CopilotWorkflows"
-            }
+        # Ensure base_context and workspace_output_folder defaults if missing
+        if 'base_context' not in workflow_manifest:
+            workflow_manifest['base_context'] = {}
+        if 'workspace_output_folder' not in workflow_manifest.get('base_context', {}):
+            workflow_manifest['base_context']['workspace_output_folder'] = f"/{user_id}/home/CopilotWorkflows"
+        if 'base_url' not in workflow_manifest.get('base_context', {}):
+            workflow_manifest['base_context']['base_url'] = "https://www.bv-brc.org"
+        # Remove workspace_root if it exists
+        if 'workspace_root' in workflow_manifest.get('base_context', {}):
+            del workflow_manifest['base_context']['workspace_root']
 
         return {
             "workflow_json": workflow_manifest,

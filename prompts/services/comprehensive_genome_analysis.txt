@@ -47,12 +47,12 @@ Examples
 ```json
 {
   "input_type": "reads",
-  "output_path": "/USERNAME/home/Project",
+  "output_path": "/__USER_ID__/home/Project",
   "output_file": "ecoli_cga",
   "paired_end_libs": [
     {
-      "read1": "/USERNAME/home/reads/sample_R1.fastq",
-      "read2": "/USERNAME/home/reads/sample_R2.fastq",
+      "read1": "/__USER_ID__/home/reads/sample_R1.fastq",
+      "read2": "/__USER_ID__/home/reads/sample_R2.fastq",
       "platform": "illumina"
     }
   ],
@@ -66,9 +66,9 @@ Examples
 ```json
 {
   "input_type": "contigs",
-  "output_path": "/USERNAME/home/Project",
+  "output_path": "/__USER_ID__/home/Project",
   "output_file": "my_contig_cga",
-  "contigs": "/USERNAME/home/inputs/my_contigs",
+  "contigs": "/__USER_ID__/home/inputs/my_contigs",
   "scientific_name": "Klebsiella pneumoniae",
   "code": 11,
   "domain": "Bacteria"

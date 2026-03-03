@@ -194,6 +194,7 @@ def _is_user_placeholder_segment(segment: str) -> bool:
         "userid",
         "{userid}",
         "<userid>",
+        "__user_id__",  # __USER_ID__ (template token from prompts)
     }
     if normalized in placeholder_aliases:
         return True

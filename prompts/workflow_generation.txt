@@ -51,7 +51,7 @@ You must return a JSON object with this EXACT structure:
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
-    "workspace_output_folder": "/USERNAME/home/CopilotWorkflows"
+    "workspace_output_folder": "/__USER_ID__/home/CopilotWorkflows"
   },
   "workflow_outputs": [
     "${steps.step_name.outputs['output_name']}"
@@ -78,7 +78,7 @@ You must return a JSON object with this EXACT structure:
 
 1. **workflow_id**: Use placeholder "<scheduler_generated_id>" - this will be replaced by the scheduler
 2. **workflow_name**: Descriptive name using lowercase with hyphens (e.g., "assembly-to-annotation-pipeline")
-3. **base_context.workspace_output_folder**: Use "/USERNAME/home/CopilotWorkflows" format (USERNAME will be replaced with actual user ID)
+3. **base_context.workspace_output_folder**: Use "/__USER_ID__/home/CopilotWorkflows" format (__USER_ID__ will be replaced with actual user ID)
 4. **workflow_outputs**: Array of output references from final steps using "${steps.step_name.outputs['output_name']}" format (use step_name, not step_id or index)
 5. **step_id**: Use placeholder "<scheduler_generated_id>" - this will be replaced by the scheduler
 6. **step_name**: Descriptive name using lowercase with hyphens (e.g., "assemble", "annotate", "analyze_blast") (must be unique)
@@ -98,7 +98,7 @@ You must return a JSON object with this EXACT structure:
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
-    "workspace_output_folder": "/USERNAME/home/CopilotWorkflows"
+    "workspace_output_folder": "/__USER_ID__/home/CopilotWorkflows"
   },
   "workflow_outputs": [
     "${steps.comparative_systems.outputs.pathways}",
@@ -112,7 +112,7 @@ You must return a JSON object with this EXACT structure:
       "app": "ComparativeSystems",
       "params": {
         "genome_groups": [
-          "/USERNAME/home/Genome Groups/genome_group_name"
+          "/__USER_ID__/home/Genome Groups/genome_group_name"
         ],
         "output_path": "${workspace_output_folder}/MyProject",
         "output_file": "a_relevant_output_filename"
@@ -147,7 +147,7 @@ You must return a JSON object with this EXACT structure:
     "group_name": "<appropriate group name>"
   },
   "outputs": {
-    "group_path": "/USERNAME/home/Genome Groups/${params.group_name}"
+    "group_path": "/__USER_ID__/home/Genome Groups/${params.group_name}"
   },
   "depends_on": [
     "job_step1",
@@ -192,12 +192,12 @@ For services that take sequences, check the service description for the exact pa
 When services require group parameters (feature_groups, genome_groups, select_genomegroup, etc.), these MUST be provided as lists of full workspace paths, NOT as group names or IDs.
 
 Examples:
-- **CORRECT**: `"feature_groups": ["/USERNAME/home/Feature Groups/my_feature_group"]`
-- **CORRECT**: `"genome_groups": ["/USERNAME/home/Genome Groups/my_genome_group"]`
+- **CORRECT**: `"feature_groups": ["/__USER_ID__/home/Feature Groups/my_feature_group"]`
+- **CORRECT**: `"genome_groups": ["/__USER_ID__/home/Genome Groups/my_genome_group"]`
 - **INCORRECT**: `"feature_groups": ["my_feature_group"]` (missing full path)
 - **INCORRECT**: `"feature_groups": "my_feature_group"` (not a list, missing path)
 
-**IMPORTANT**: For the MSA tool (msa_snp_analysis), the feature_groups parameter MUST be a list of workspace paths. Always use the format: `["/USERNAME/home/Feature Groups/group_name"]`
+**IMPORTANT**: For the MSA tool (msa_snp_analysis), the feature_groups parameter MUST be a list of workspace paths. Always use the format: `["/__USER_ID__/home/Feature Groups/group_name"]`
 
 Always refer to the detailed service descriptions in the AVAILABLE SERVICES section of the user prompt for the correct parameter names and structure.
 

@@ -38,7 +38,7 @@ Return a JSON object with this EXACT structure:
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
-    "workspace_output_folder": "/USERNAME/home/CopilotWorkflows"
+    "workspace_output_folder": "/__USER_ID__/home/CopilotWorkflows"
   },
   "workflow_outputs": [
     "${steps.step_name.outputs.output_name}"
@@ -66,7 +66,7 @@ Return a JSON object with this EXACT structure:
 
 1. **workflow_id**: Always use `"<scheduler_generated_id>"`
 2. **workflow_name**: Descriptive lowercase-with-hyphens (e.g., "ecoli-analysis-pipeline")
-3. **base_context.workspace_output_folder**: Always use `"/USERNAME/home/CopilotWorkflows"`
+3. **base_context.workspace_output_folder**: Always use `"/__USER_ID__/home/CopilotWorkflows"`
 4. **step_id**: Always use `"<scheduler_generated_id>"`
 5. **step_name**: Unique descriptive name, lowercase with underscores (e.g., "assemble_genome", "annotate_contigs")
 6. **app**: **CRITICAL** - Use the EXACT `api_name` value from the DETAILED SERVICE SPECIFICATIONS section
@@ -82,7 +82,7 @@ Return a JSON object with this EXACT structure:
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
-    "workspace_output_folder": "/USERNAME/home/CopilotWorkflows"
+    "workspace_output_folder": "/__USER_ID__/home/CopilotWorkflows"
   },
   "workflow_outputs": [
     "${steps.step_name.outputs.output_name}"

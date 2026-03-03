@@ -9,7 +9,7 @@
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
-    "workspace_output_folder": "/USERNAME/home/CopilotWorkflows"
+    "workspace_output_folder": "/__USER_ID__/home/CopilotWorkflows"
   },
   "workflow_outputs": [
     "${steps.taxonomic_classification.outputs.classification_report}"
