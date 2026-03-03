@@ -47,7 +47,7 @@ _FALLBACK_SNAPSHOT_LIMIT = 100
 # Primary key field per Solr collection, used for deterministic sort in downloads
 _COLLECTION_KEY_FIELD = {
     "genome": "genome_id",
-    "genome_feature": "patric_id",
+    "genome_feature": "feature_id",
     "taxonomy": "taxon_id",
     "genome_amr": "id",
     "genome_sequence": "sequence_id",
