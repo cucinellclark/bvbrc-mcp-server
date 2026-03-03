@@ -67,7 +67,7 @@ Minimal examples
   "db_source": "precomputed_database",
   "db_precomputed_database": "bacteria-archaea",
   "blast_program": "blastp",
-  "output_path": "WorkspaceOutputFolder",
+  "output_path": "CopilotWorkflows",
   "output_file": "blast_bact_ref"
 }
 
@@ -80,7 +80,7 @@ Minimal examples
   "db_source": "genome_list",
   "db_genome_list": ["83332.12", "1773.3"],
   "blast_program": "blastn",
-  "output_path": "WorkspaceOutputFolder",
+  "output_path": "CopilotWorkflows",
   "output_file": "blast_selected_genomes"
 }
 

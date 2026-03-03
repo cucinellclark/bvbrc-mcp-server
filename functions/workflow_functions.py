@@ -613,14 +613,14 @@ PREVIOUS WORKFLOW (fix only what is needed to address validation errors):
                 workspace_path = workflow_manifest['base_context']['workspace_output_folder']
                 workflow_manifest['base_context']['workspace_output_folder'] = workspace_path.replace('/USERNAME/', f'/{user_id}/')
             else:
-                workflow_manifest['base_context']['workspace_output_folder'] = f"/{user_id}/home/WorkspaceOutputFolder"
+                workflow_manifest['base_context']['workspace_output_folder'] = f"/{user_id}/home/CopilotWorkflows"
             # Remove workspace_root if it exists
             if 'workspace_root' in workflow_manifest['base_context']:
                 del workflow_manifest['base_context']['workspace_root']
         else:
             workflow_manifest['base_context'] = {
                 "base_url": "https://www.bv-brc.org",
-                "workspace_output_folder": f"/{user_id}/home/WorkspaceOutputFolder"
+                "workspace_output_folder": f"/{user_id}/home/CopilotWorkflows"
             }
 
         return {

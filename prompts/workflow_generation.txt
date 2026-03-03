@@ -51,7 +51,7 @@ You must return a JSON object with this EXACT structure:
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
-    "workspace_output_folder": "/USERNAME/home/WorkspaceOutputFolder"
+    "workspace_output_folder": "/USERNAME/home/CopilotWorkflows"
   },
   "workflow_outputs": [
     "${steps.step_name.outputs['output_name']}"
@@ -78,7 +78,7 @@ You must return a JSON object with this EXACT structure:
 
 1. **workflow_id**: Use placeholder "<scheduler_generated_id>" - this will be replaced by the scheduler
 2. **workflow_name**: Descriptive name using lowercase with hyphens (e.g., "assembly-to-annotation-pipeline")
-3. **base_context.workspace_output_folder**: Use "/USERNAME/home/WorkspaceOutputFolder" format (USERNAME will be replaced with actual user ID)
+3. **base_context.workspace_output_folder**: Use "/USERNAME/home/CopilotWorkflows" format (USERNAME will be replaced with actual user ID)
 4. **workflow_outputs**: Array of output references from final steps using "${steps.step_name.outputs['output_name']}" format (use step_name, not step_id or index)
 5. **step_id**: Use placeholder "<scheduler_generated_id>" - this will be replaced by the scheduler
 6. **step_name**: Descriptive name using lowercase with hyphens (e.g., "assemble", "annotate", "analyze_blast") (must be unique)
@@ -98,7 +98,7 @@ You must return a JSON object with this EXACT structure:
   "version": "1.0",
   "base_context": {
     "base_url": "https://www.bv-brc.org",
-    "workspace_output_folder": "/USERNAME/home/WorkspaceOutputFolder"
+    "workspace_output_folder": "/USERNAME/home/CopilotWorkflows"
   },
   "workflow_outputs": [
     "${steps.comparative_systems.outputs.pathways}",
