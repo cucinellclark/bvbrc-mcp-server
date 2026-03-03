@@ -61,7 +61,7 @@ def register_group_tools(
                 "source": "bvbrc-workspace",
             }
 
-        return await list_groups(api, "genome_group", auth_token)
+        return await list_groups(api, "genome_group", auth_token, tool_name="list_genome_groups")
 
     @mcp.tool(name="list_feature_groups", annotations={"readOnlyHint": True})
     async def list_feature_groups(
@@ -83,7 +83,7 @@ def register_group_tools(
                 "source": "bvbrc-workspace",
             }
 
-        return await list_groups(api, "feature_group", auth_token)
+        return await list_groups(api, "feature_group", auth_token, tool_name="list_feature_groups")
 
     # ------------------------------------------------------------------
     # GET tools

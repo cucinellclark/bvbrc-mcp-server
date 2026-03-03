@@ -67,6 +67,36 @@ def _normalize_name(name: str) -> str:
     return (name or "").strip().lower()
 
 
+def _build_grid_payload(
+    entity_type: str,
+    items: list = None,
+    result_type: str = "list_result",
+    pagination: dict = None,
+    sort: dict = None,
+    source: str = "bvbrc-workspace",
+    columns: list = None,
+    selectable: bool = True,
+    multi_select: bool = True,
+    sortable: bool = True,
+) -> dict:
+    """Build a structured grid payload for frontend rendering."""
+    return {
+        "schema_version": "1.0",
+        "entity_type": entity_type,
+        "source": source,
+        "result_type": result_type,
+        "capabilities": {
+            "selectable": selectable,
+            "multi_select": multi_select,
+            "sortable": sortable,
+        },
+        "pagination": pagination,
+        "sort": sort,
+        "columns": columns or [],
+        "items": items or [],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Core workspace calls (thin wrappers around JSON-RPC)
 # ---------------------------------------------------------------------------
@@ -301,6 +331,7 @@ async def list_groups(
     group_type: str,
     token: str,
     folder: Optional[str] = None,
+    tool_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     List all groups of the given type in a folder.
@@ -308,17 +339,31 @@ async def list_groups(
     If *folder* is not provided, uses the default group folder
     (e.g. ``/{user}/home/Genome Groups``).
 
+    Returns a structured envelope with ``result``, ``call``, and ``ui_grid``
+    so that the frontend can render groups in an interactive grid and the
+    LLM receives only a concise summary.
+
     Returns
     -------
     ::
 
         {
-            "groups": [{"name": "...", "path": "...", "creation_time": "...", "size": N}, ...],
-            "count": N,
-            "group_names": ["name1", "name2", ...],
-            "message": "Found N genome group(s).",
-            "folder": "/user/home/Genome Groups",
-            "source": "bvbrc-workspace"
+            "result": {
+                "items": [...],
+                "tool_name": "list_genome_groups",
+                "result_type": "list_result",
+                "count": N,
+                "path": "/user/home/Genome Groups",
+                "source": "bvbrc-workspace",
+                "ui_grid": { ... }
+            },
+            "call": {
+                "tool": "list_genome_groups",
+                "backend_method": "Workspace.ls",
+                "arguments_executed": { ... },
+                "replayable": true,
+                "replay": { ... }
+            }
         }
     """
     user_id = _get_user_id_from_token(token)
@@ -339,6 +384,10 @@ async def list_groups(
     items = ls_result.get("items", [])
     display = GROUP_TYPE_CONFIG[group_type]["display_name"]
 
+    # Derive tool_name if not provided
+    if not tool_name:
+        tool_name = f"list_{group_type}s"  # e.g. "list_genome_groups"
+
     groups = []
     group_names = []
     for item in items:
@@ -352,20 +401,50 @@ async def list_groups(
             "size": item[6] if len(item) > 6 else None,
         })
 
-    # Build a numbered list for LLM-friendly output
+    # Concise message for the LLM — the grid handles the full listing
     if groups:
-        numbered = "\n".join(f"{i+1}. {g['name']}" for i, g in enumerate(groups))
-        message = f"Found {len(groups)} {display}(s):\n{numbered}"
+        message = f"Found {len(groups)} {display}(s). The full list is displayed in the table."
     else:
         message = f"No {display}s found in {folder}."
 
     return {
-        "groups": groups,
-        "count": len(groups),
-        "group_names": group_names,
-        "message": message,
-        "folder": folder,
-        "source": "bvbrc-workspace",
+        "result": {
+            "items": groups,
+            "tool_name": tool_name,
+            "result_type": "list_result",
+            "count": len(groups),
+            "group_names": group_names,
+            "message": message,
+            "path": folder,
+            "source": "bvbrc-workspace",
+            "ui_grid": _build_grid_payload(
+                entity_type=group_type,
+                items=groups,
+                result_type="list_result",
+                source="bvbrc-workspace",
+                sort={"sort_by": "name", "sort_order": "asc"},
+                pagination={"limit": len(groups), "offset": 0, "has_more": False},
+                columns=[
+                    {"key": "name", "label": "Name", "sortable": True},
+                    {"key": "type", "label": "Type", "sortable": True},
+                    {"key": "creation_time", "label": "Created", "sortable": True},
+                    {"key": "size", "label": "Size", "sortable": True},
+                ],
+            ),
+        },
+        "call": {
+            "tool": tool_name,
+            "backend_method": "Workspace.ls",
+            "arguments_executed": {
+                "group_type": group_type,
+                "folder": folder,
+            },
+            "replayable": True,
+            "replay": {
+                "path": folder,
+                "group_type": group_type,
+            },
+        },
     }
 
 
