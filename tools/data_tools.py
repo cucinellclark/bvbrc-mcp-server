@@ -39,6 +39,51 @@ _llm_client = None
 _download_cancel_tokens: Dict[str, bool] = {}
 _default_select_by_collection: Optional[Dict[str, List[str]]] = None
 _default_facet_by_collection: Optional[Dict[str, List[str]]] = None
+_default_snapshot_limit: Optional[int] = None
+
+# Default snapshot limit used when config is not available
+_FALLBACK_SNAPSHOT_LIMIT = 100
+
+# Primary key field per Solr collection, used for deterministic sort in downloads
+_COLLECTION_KEY_FIELD = {
+    "genome": "genome_id",
+    "genome_feature": "patric_id",
+    "taxonomy": "taxon_id",
+    "genome_amr": "id",
+    "genome_sequence": "sequence_id",
+    "sp_gene": "patric_id",
+    "pathway": "pathway_id",
+    "subsystem": "id",
+    "protein_family_ref": "family_id",
+    "specialty_gene_ref": "id",
+    "antibiotics": "antibiotic_name",
+    "enzyme_class_ref": "ec_number",
+    "gene_ontology_ref": "go_id",
+}
+
+
+def _load_default_snapshot_limit() -> int:
+    """Load data.default_snapshot_limit from config.json. Cached on first call."""
+    global _default_snapshot_limit
+    if _default_snapshot_limit is not None:
+        return _default_snapshot_limit
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config",
+        "config.json"
+    )
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        data_config = config.get("data") or {}
+        limit = data_config.get("default_snapshot_limit")
+        if isinstance(limit, int) and limit > 0:
+            _default_snapshot_limit = limit
+        else:
+            _default_snapshot_limit = _FALLBACK_SNAPSHOT_LIMIT
+    except Exception:
+        _default_snapshot_limit = _FALLBACK_SNAPSHOT_LIMIT
+    return _default_snapshot_limit
 
 
 def _load_default_select_by_collection() -> Dict[str, List[str]]:
@@ -207,13 +252,13 @@ STOPWORDS = {
 
     # quantifiers & comparatives
     "some", "any", "all", "none", "many", "much", "few", "less", "more", "most",
-    "several", "such", "same", "other", "another",
+    "several", "such", "same", "other", "another", 
 
     # numbers & counting terms
     "count", "counts", "total", "number", "numbers", "amount", "average", "sum",
 
     # generic descriptors
-    "type", "types", "kind", "kinds", "example", "examples", "case", "cases"
+    "type", "types", "kind", "kinds", "example", "examples", "case", "cases", "found", "find"
 }
 
 # Custom domain-specific stopwords to exclude
@@ -857,6 +902,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         user_query: str,
         advanced: bool = False,
         count: bool = False,
+        snapshot_limit: Optional[int] = None,
         cancel_token: Optional[str] = None,
         stream: bool = False,
         token: Optional[str] = None,
@@ -868,6 +914,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
         Default behavior (`advanced=False`) is exploratory global search:
         - Select a likely collection with internal LLM routing
         - Execute a q= search using AND semantics
+        - Returns a snapshot of results (default 100) plus the total count
         - If count=True, return only the matching total
 
         Advanced behavior (`advanced=True`) is targeted retrieval:
@@ -879,6 +926,7 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             user_query: Natural language query text or keyword list.
             advanced: False (default) for global discovery; True for targeted structured query execution.
             count: If True, return only the count for the planner-selected query.
+            snapshot_limit: Maximum number of rows to return in the snapshot (default from config, typically 100). Must be between 1 and 10000.
             cancel_token: Internal cancellation token (set by API, not user-facing).
             stream: Internal transport flag used by API/MCP streaming pipeline.
             token: Authentication token (optional, auto-detected if token_provider is configured).
@@ -1049,120 +1097,117 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
                         },
                     }
 
-                # Global mode should paginate through all cursor pages, mirroring
-                # the "return all matching results" behavior used elsewhere.
-                cursor = "*"
-                merged_results: List[Dict[str, Any]] = []
-                total_num_found: Optional[int] = None
-                total_batches = 0
+                # --- Snapshot mode ---
+                # Fetch a bounded snapshot of results (default 100) instead of
+                # exhausting all cursor pages.  The total count (numFound) is
+                # returned so the LLM and client can communicate the full scope
+                # of the result set, along with a download URL for the complete
+                # dataset.
+                effective_snapshot_limit = snapshot_limit if snapshot_limit is not None else _load_default_snapshot_limit()
+                if effective_snapshot_limit < 1:
+                    effective_snapshot_limit = 1
+                elif effective_snapshot_limit > 10000:
+                    effective_snapshot_limit = 10000
 
-                while cursor:
-                    if _is_download_cancelled(normalized_cancel_token):
-                        return {
-                            "error": "Data download cancelled.",
-                            "errorType": "CANCELLED",
-                            "cancelled": True,
-                            "count": len(merged_results),
-                            "numFound": total_num_found if total_num_found is not None else len(merged_results),
-                            "source": "bvbrc-mcp-data"
-                        }
+                print(
+                    f"[bvbrc_search_data:snapshot] Fetching snapshot: "
+                    f"collection='{collection}', limit={effective_snapshot_limit}"
+                )
 
-                    page_result = await query_direct(
-                        core=collection,
-                        filter_str=q_expr,
-                        options=options,
-                        base_url=_base_url,
-                        headers=headers,
-                        cursorId=cursor,
-                        countOnly=False,
-                        batch_size=CURSOR_BATCH_SIZE
-                    )
-                    page_results = page_result.get("results", [])
-                    if not page_results:
-                        break
+                snapshot_result = await query_direct(
+                    core=collection,
+                    filter_str=q_expr,
+                    options=options,
+                    base_url=_base_url,
+                    headers=headers,
+                    cursorId="*",
+                    countOnly=False,
+                    batch_size=effective_snapshot_limit
+                )
+                snapshot_rows = snapshot_result.get("results", [])
+                total_num_found = snapshot_result.get("numFound", len(snapshot_rows))
+                snapshot_count = len(snapshot_rows)
+                is_snapshot = snapshot_count < total_num_found
 
-                    merged_results.extend(page_results)
-                    total_num_found = page_result.get("numFound", total_num_found)
-                    total_batches += 1
-                    if ctx is not None:
-                        await ctx.report_progress(
-                            progress=float(len(merged_results)),
-                            total=float(total_num_found) if total_num_found is not None else None,
-                            message=(
-                                f"Fetched {len(merged_results)} records"
-                                f" (batch {total_batches}, collection={collection})"
-                            )
+                if ctx is not None:
+                    await ctx.report_progress(
+                        progress=float(snapshot_count),
+                        total=float(total_num_found),
+                        message=(
+                            f"Fetched {snapshot_count} of {total_num_found} records"
+                            f" (collection={collection})"
                         )
+                    )
 
-                    next_cursor = page_result.get("nextCursorId")
-                    if not next_cursor:
-                        break
-                    cursor = next_cursor
+                # Build the full-dataset download URL for TSV export
+                base_api = str(_base_url or "https://www.bv-brc.org/api-bulk").rstrip("/")
+                download_rql = rql_replay_query
+                if download_rql and download_rql.startswith("?"):
+                    download_rql = download_rql[1:]
+                sort_field = _COLLECTION_KEY_FIELD.get(collection, "id")
+                download_url = (
+                    f"{base_api}/{collection}/"
+                    f"?{download_rql}"
+                    f"&http_accept={quote('text/tsv')}"
+                    f"&http_download=true"
+                    f"&limit({total_num_found})"
+                    f"&sort(+{sort_field})"
+                )
 
-                result = {
-                    "results": merged_results,
-                    "count": len(merged_results),
-                    "numFound": total_num_found if total_num_found is not None else len(merged_results),
-                    "nextCursorId": None,
-                    "_paginationInfo": {
-                        "totalBatches": total_batches,
-                        "batchSize": CURSOR_BATCH_SIZE,
+                # Convert snapshot rows to TSV
+                conversion_result = convert_json_to_tsv(snapshot_rows)
+
+                call_metadata = {
+                    "tool": "bvbrc_search_data",
+                    "backend_method": "data_functions.query_direct",
+                    "replayable": True,
+                    "arguments_executed": {
+                        "mode": "global",
+                        "collection": collection,
+                        "selection": selection,
+                        "searchMode": search_info.get("searchMode"),
+                        "keywords": sanitized_keywords,
+                        "q": q_expr,
+                        "data_api_base_url": _base_url,
                     },
+                    "replay": {
+                        "rql_query": rql_query,
+                        "rql_replay_query": rql_replay_query,
+                        "download_url": download_url,
+                    },
+                    "source": "bvbrc-mcp-data",
                 }
-                conversion_result = convert_json_to_tsv(result.get("results", []))
+
                 if "error" in conversion_result:
                     return {
                         "error": conversion_result["error"],
                         "hint": conversion_result.get("hint", ""),
-                        "results": result.get("results", []),
-                        "count": result.get("count"),
-                        "numFound": result.get("numFound"),
-                        "nextCursorId": result.get("nextCursorId"),
+                        "results": snapshot_rows,
+                        "count": snapshot_count,
+                        "numFound": total_num_found,
+                        "is_snapshot": is_snapshot,
+                        "snapshot_limit": effective_snapshot_limit,
+                        "collection": collection,
                         "source": "bvbrc-mcp-data",
-                        "call": {
-                            "tool": "bvbrc_search_data",
-                            "backend_method": "data_functions.query_direct",
-                            "replayable": True,
-                            "arguments_executed": {
-                                "mode": "global",
-                                "collection": collection,
-                                "selection": selection,
-                                "searchMode": search_info.get("searchMode"),
-                                "keywords": sanitized_keywords,
-                                "q": q_expr,
-                                "data_api_base_url": _base_url,
-                            },
-                            "replay": {
-                                "rql_query": rql_query,
-                                "rql_replay_query": rql_replay_query,
-                            },
-                            "source": "bvbrc-mcp-data",
-                        },
+                        "call": call_metadata,
                     }
-                del result["results"]
-                result["tsv"] = conversion_result["tsv"]
+
+                print(
+                    f"[bvbrc_search_data:snapshot] Returning snapshot: "
+                    f"count={snapshot_count}, numFound={total_num_found}, "
+                    f"is_snapshot={is_snapshot}, collection='{collection}'"
+                )
+
                 return {
-                    **result,
+                    "tsv": conversion_result["tsv"],
+                    "count": snapshot_count,
+                    "numFound": total_num_found,
+                    "is_snapshot": is_snapshot,
+                    "snapshot_limit": effective_snapshot_limit,
+                    "collection": collection,
+                    "nextCursorId": None,
                     "source": "bvbrc-mcp-data",
-                    "call": {
-                        "tool": "bvbrc_search_data",
-                        "backend_method": "data_functions.query_direct",
-                        "replayable": True,
-                        "arguments_executed": {
-                            "mode": "global",
-                            "collection": collection,
-                            "selection": selection,
-                            "searchMode": search_info.get("searchMode"),
-                            "keywords": sanitized_keywords,
-                            "q": q_expr,
-                            "data_api_base_url": _base_url,
-                        },
-                        "replay": {
-                            "rql_query": rql_query,
-                            "rql_replay_query": rql_replay_query,
-                        },
-                        "source": "bvbrc-mcp-data",
-                    },
+                    "call": call_metadata,
                 }
             except Exception as e:
                 return {
