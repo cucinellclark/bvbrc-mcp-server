@@ -235,6 +235,7 @@ def format_session_facts_for_llm(session_id: str, user_id: Optional[str] = None)
     Returns:
         Formatted string representation of session facts
     """
+    return ""  # Session facts disabled
     service = get_session_facts_service()
     return service.format_session_facts(session_id, user_id)
 

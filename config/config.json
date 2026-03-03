@@ -77,6 +77,11 @@
             "max_tokens": 1000
         }
     },
+    "conversation": {
+        "facts": {
+            "enabled": false
+        }
+    },
     "sra_tools": {
         "singularity_container": "/vol/patric3/production/containers/ubuntu-027-11.sif"
     }, 

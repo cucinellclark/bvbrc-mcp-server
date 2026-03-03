@@ -34,7 +34,9 @@
       "get_recent_jobs",
       "bvbrc_search_data",
       "plan_workflow",
-      "submit_workflow"
+      "submit_workflow",
+      "list_genome_groups",
+      "list_feature_groups"
     ],
     "replay_data_page_size_default": 100,
     "bypass_file_handling_tools": [
@@ -52,7 +54,9 @@
       "bvbrc_collection_fields_and_parameters",
       "list_jobs",
       "get_job_details",
-      "read_file_bytes_tool"
+      "read_file_bytes_tool",
+      "list_genome_groups",
+      "list_feature_groups"
     ],
     "tool_policies": {
       "bvbrc_search_data": {
@@ -68,7 +72,9 @@
     ],
     "exclude_from_context": {
       "unconditional": [
-        "list_jobs"
+        "list_jobs",
+        "list_genome_groups",
+        "list_feature_groups"
       ],
       "conditional": {
         "workspace_browse_tool": {

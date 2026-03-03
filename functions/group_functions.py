@@ -412,22 +412,30 @@ async def list_groups(
             "size": item[6] if len(item) > 6 else None,
         })
 
-    # Concise message for the LLM — the grid handles the full listing
+    # Build a concise LLM snapshot: count + names only.
+    # The full data lives in ui_grid for the frontend / replay.
     if groups:
-        message = f"Found {len(groups)} {display}(s). The full list is displayed in the table."
+        names_str = ", ".join(group_names)
+        message = (
+            f"Found {len(groups)} {display}(s): {names_str}. "
+            "The complete details are displayed in the table for the user."
+        )
     else:
         message = f"No {display}s found in {folder}."
 
     return {
         "result": {
-            "items": groups,
+            # Snapshot for the LLM — names only, no paths or metadata
+            "items": [{"name": g["name"]} for g in groups],
             "tool_name": tool_name,
             "result_type": "search_result",
             "count": len(groups),
             "group_names": group_names,
             "message": message,
+            "is_snapshot": True,
             "path": folder,
             "source": "bvbrc-workspace",
+            # Full data for the frontend / replay
             "ui_grid": _build_grid_payload(
                 entity_type=group_type,
                 items=groups,
