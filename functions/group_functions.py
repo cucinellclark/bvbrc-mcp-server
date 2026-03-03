@@ -10,6 +10,7 @@ name-to-path logic.
 """
 
 from common.json_rpc import JsonRpcCaller
+from functions.workspace_functions import workspace_search
 from typing import List, Optional, Dict, Any
 import json
 import sys
@@ -249,22 +250,27 @@ async def resolve_group_path(
             "source": "bvbrc-workspace",
         }
 
-    # ── Tier 2: fuzzy match in default folder ──
-    folder = _default_group_folder(user_id, group_type)
-    ls_result = await _workspace_ls_groups(api, folder, group_type, token)
+    # ── Tier 2: fuzzy match across entire workspace ──
+    home = _user_home(user_id)
+    search_result = await workspace_search(
+        api,
+        paths=[home],
+        file_types=[group_type],
+        token=token,
+    )
 
-    if "error" in ls_result:
+    if "error" in search_result:
         return {
-            "error": f"Group '{name}' not found and could not search the default folder",
+            "error": f"Group '{name}' not found and could not search the workspace",
             "errorType": "NOT_FOUND",
-            "details": ls_result["error"],
+            "details": search_result["error"],
             "source": "bvbrc-workspace",
         }
 
-    items = ls_result.get("items", [])
+    items = search_result.get("items", [])
     if not items:
         return {
-            "error": f"No {GROUP_TYPE_CONFIG[group_type]['display_name']}s found. The '{GROUP_TYPE_CONFIG[group_type]['default_folder']}' folder is empty.",
+            "error": f"No {GROUP_TYPE_CONFIG[group_type]['display_name']}s found in the workspace.",
             "errorType": "NOT_FOUND",
             "source": "bvbrc-workspace",
         }
@@ -375,13 +381,18 @@ async def list_groups(
         if not folder.startswith("/"):
             folder = f"{_user_home(user_id)}/{folder}"
     else:
-        folder = _default_group_folder(user_id, group_type)
+        folder = _user_home(user_id)
 
-    ls_result = await _workspace_ls_groups(api, folder, group_type, token)
-    if "error" in ls_result:
-        return ls_result
+    search_result = await workspace_search(
+        api,
+        paths=[folder],
+        file_types=[group_type],
+        token=token,
+    )
+    if "error" in search_result:
+        return search_result
 
-    items = ls_result.get("items", [])
+    items = search_result.get("items", [])
     display = GROUP_TYPE_CONFIG[group_type]["display_name"]
 
     # Derive tool_name if not provided
@@ -411,7 +422,7 @@ async def list_groups(
         "result": {
             "items": groups,
             "tool_name": tool_name,
-            "result_type": "list_result",
+            "result_type": "search_result",
             "count": len(groups),
             "group_names": group_names,
             "message": message,
@@ -420,7 +431,7 @@ async def list_groups(
             "ui_grid": _build_grid_payload(
                 entity_type=group_type,
                 items=groups,
-                result_type="list_result",
+                result_type="search_result",
                 source="bvbrc-workspace",
                 sort={"sort_by": "name", "sort_order": "asc"},
                 pagination={"limit": len(groups), "offset": 0, "has_more": False},
