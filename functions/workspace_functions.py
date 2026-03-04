@@ -282,15 +282,11 @@ async def workspace_search(
     # Add file type filter if provided
     if file_types:
         # file_types is already a list
-        # Add type filter condition
-        if len(file_types) == 1:
-            type_conditions.append({
-                "type": file_types[0]
-            })
-        else:
-            type_conditions.append({
-                "type": {"$in": file_types}
-            })
+        # Pass type as array directly (API expects array format for type filtering),
+        # consistent with workspace_ls behavior.
+        type_conditions.append({
+            "type": file_types
+        })
 
     # Build final query conditions
     # NOTE: The workspace API does not support $and operator despite using MongoDB syntax.

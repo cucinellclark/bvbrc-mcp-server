@@ -185,6 +185,7 @@ def _is_user_placeholder_segment(segment: str) -> bool:
 
     normalized = segment.strip().lower()
     placeholder_aliases = {
+        "user",
         "username",
         "{username}",
         "<username>",
@@ -200,7 +201,8 @@ def _is_user_placeholder_segment(segment: str) -> bool:
         return True
 
     # Backward compatibility for historic examples shown in tool docs/prompts.
-    if normalized == "user1@patricbrc.org":
+    if normalized in ("user1@patricbrc.org", "user@patricbrc.org",
+                      "user@domain", "user@domain.com"):
         return True
 
     return False
@@ -589,15 +591,26 @@ def register_workspace_tools(
             This tool always uses automatic mode selection:
                 - Uses recursive search when filters are provided.
                 - Uses one-level listing when no filters are provided.
-            name_contains: Words/terms that must appear IN the filename itself (AND logic).
+            name_contains: Literal substrings that must appear in the filename (AND logic).
+                ONLY use this for actual filename text the user specifies (e.g., "sample1", "ecoli").
+                NEVER put file type categories here — use workspace_types or file_extensions instead.
+                For example, if the user asks "find my reads files", do NOT set name_contains to "reads";
+                instead set workspace_types to ["reads"]. Only set name_contains if the user explicitly
+                mentions a filename or filename fragment they want to match.
             file_extensions: File extensions to match (OR logic). Example: ["fastq", "fq"] finds .fastq OR .fq files.
-            workspace_types: Workspace object types to match (OR logic). Supported types:
+                IMPORTANT: Do NOT combine file_extensions with workspace_types for the same file category.
+                Use ONE approach: either workspace_types OR file_extensions, not both together.
+                For example, to find reads files, use workspace_types: ["reads"] alone — do NOT also add
+                file_extensions: ["fastq", "fq"] because that creates an overly restrictive AND filter.
+            workspace_types: Workspace object types to match (OR logic). This is the PREFERRED way to
+                find files by category/type. Supported types:
                 csv, diffexp_input_data, diffexp_input_metadata, doc, docx, embl,
                 feature_dna_fasta, feature_protein_fasta, genbank_file, gff, gif, graph, jpg,
                 json, nwk, pdf, phyloxml, png, pdb, ppt, pptx, reads, string, svg, tar_gz, tbi,
                 tsv, txt, unspecified, vcf, vcf_gz, wig, xls, xlsx, xml.
-                Important: workspace_types filters by workspace metadata type, while file_extensions
-                filters by filename suffix. They can overlap (for example, csv/json).
+                When the user asks for files of a particular type (e.g., "find my reads files",
+                "show me contigs"), use ONLY workspace_types. Do not also set name_contains or
+                file_extensions for the same concept.
             sort_by: Optional sort field. Valid options: creation_time, name, size, type.
             sort_order: Optional sort direction. Valid options: asc, desc.
             num_results: Maximum number of results to return. Defaults to 50.
