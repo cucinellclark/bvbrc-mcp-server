@@ -533,7 +533,9 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
 
         Required input (at least one):
           - params.genome_ids: List of BV-BRC genome IDs (e.g., ["83332.12", "511145.12"])
-          - params.genome_groups: List of workspace paths to genome groups
+          - params.genome_groups: List of genome group names or workspace paths
+            (e.g., ["My_ecoli_group", "Acinetobacter_group_1"])
+            Pass group names directly — do NOT resolve them to individual genome IDs first.
 
         Optional parameters:
           - params.output_path: Workspace output directory (auto-generated if omitted)
@@ -575,6 +577,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             user_id=user_id,
             auth_token=auth_token,
             params=params,
+            api=api,
         )
 
     # ---------------------------------------------------------------

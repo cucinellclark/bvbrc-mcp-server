@@ -19,6 +19,12 @@ import uuid
 from typing import Dict, List, Any, Optional
 
 from common.workflow_engine_client import WorkflowEngineClient, WorkflowEngineError
+from common.json_rpc import JsonRpcCaller
+from functions.group_functions import resolve_group_path
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -551,10 +557,56 @@ async def plan_genome_annotation_fn(
 # Comparative Systems
 # ---------------------------------------------------------------------------
 
+async def _resolve_genome_group_names(
+    genome_groups: List[str],
+    api: Optional[JsonRpcCaller],
+    auth_token: str,
+    auto_corrections: List[str],
+) -> List[str]:
+    """
+    Resolve genome group values to full workspace paths.
+
+    If a value already looks like a workspace path (starts with '/'),
+    it is kept as-is.  Otherwise, it is treated as a bare group name
+    and resolved via resolve_group_path().
+    """
+    if not api:
+        # No workspace API available — return values as-is
+        return genome_groups
+
+    resolved: List[str] = []
+    for group_val in genome_groups:
+        if group_val.startswith("/"):
+            # Already a full workspace path
+            resolved.append(group_val)
+        else:
+            # Bare name — resolve to workspace path
+            result = await resolve_group_path(
+                api, group_val, "genome_group", auth_token
+            )
+            if "path" in result:
+                resolved.append(result["path"])
+                auto_corrections.append(
+                    f"Resolved genome group name '{group_val}' to path '{result['path']}'"
+                )
+                logger.info(
+                    f"Resolved genome group '{group_val}' -> '{result['path']}'"
+                )
+            else:
+                # Resolution failed — keep original value and log warning
+                resolved.append(group_val)
+                logger.warning(
+                    f"Could not resolve genome group name '{group_val}': "
+                    f"{result.get('error', 'unknown error')}"
+                )
+    return resolved
+
+
 async def plan_comparative_systems_fn(
     user_id: str,
     auth_token: str,
     params: Dict[str, Any],
+    api: Optional[JsonRpcCaller] = None,
 ) -> Dict[str, Any]:
     """
     Validate, correct, build, and persist a comparative systems workflow.
@@ -578,6 +630,10 @@ async def plan_comparative_systems_fn(
     if genome_groups is not None:
         genome_groups = _coerce_to_list(genome_groups)
         genome_groups = [str(g) for g in genome_groups if g is not None]
+        # Resolve bare group names to full workspace paths
+        genome_groups = await _resolve_genome_group_names(
+            genome_groups, api, auth_token, auto_corrections
+        )
 
     has_ids = genome_ids and len(genome_ids) > 0
     has_groups = genome_groups and len(genome_groups) > 0
