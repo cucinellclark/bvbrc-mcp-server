@@ -38,6 +38,7 @@ _config = get_config()
 ACCESS_TOKEN_EXPIRES_IN_SECONDS = _config.oauth.access_token_expires_in_seconds
 AUTHORIZATION_CODE_EXPIRES_IN_SECONDS = _config.oauth.authorization_code_expires_in_seconds
 ALLOWED_CALLBACK_URLS = _config.oauth.allowed_callback_urls
+ALLOWED_CALLBACK_ORIGINS = _config.oauth.allowed_callback_origins
 TRUSTED_CLIENT_IDS = _config.oauth.trusted_client_ids
 
 class BvbrcOAuthProvider(AuthProvider):
@@ -241,6 +242,36 @@ def is_localhost_url(url: str) -> bool:
     except Exception:
         return False
 
+def is_allowed_redirect_uri(redirect_uri: str) -> bool:
+    """
+    Check if a redirect_uri is allowed by the configured allowlist.
+    
+    A redirect_uri is allowed if:
+      1. It exactly matches an entry in ALLOWED_CALLBACK_URLS, OR
+      2. Its origin (scheme + host) matches an entry in ALLOWED_CALLBACK_ORIGINS, OR
+      3. It is a localhost URL.
+    """
+    # Exact match against the URL allowlist
+    if redirect_uri in ALLOWED_CALLBACK_URLS:
+        return True
+    # Origin-based match: parse the redirect_uri and compare scheme+host
+    # against each allowed origin. This supports clients (e.g. ChatGPT) that
+    # use randomly-generated callback paths.
+    try:
+        parsed = urlparse(redirect_uri)
+        redirect_origin = f"{parsed.scheme}://{parsed.hostname}".lower()
+        for origin in ALLOWED_CALLBACK_ORIGINS:
+            allowed = urlparse(origin)
+            allowed_origin = f"{allowed.scheme}://{allowed.hostname}".lower()
+            if redirect_origin == allowed_origin:
+                return True
+    except Exception:
+        pass
+    # Localhost bypass
+    if is_localhost_url(redirect_uri):
+        return True
+    return False
+
 def get_registered_client(client_id: str) -> dict | None:
     """Legacy helper used by module-level endpoints."""
     return registered_clients.get(client_id)
@@ -426,12 +457,12 @@ async def oauth2_authorize(request, authentication_url: str):
             status_code=400
         )
     
-    # Validate redirect_uri is whitelisted (allow localhost URLs or URLs in allowed list)
-    if redirect_uri not in ALLOWED_CALLBACK_URLS and not is_localhost_url(redirect_uri):
+    # Validate redirect_uri is whitelisted (allow localhost URLs, exact URL matches, or origin matches)
+    if not is_allowed_redirect_uri(redirect_uri):
         return JSONResponse(
             content={
                 "error": "invalid_request",
-                "error_description": f"redirect_uri '{redirect_uri}' is not whitelisted. Allowed: {ALLOWED_CALLBACK_URLS} or any localhost URL"
+                "error_description": f"redirect_uri '{redirect_uri}' is not whitelisted. Allowed: {ALLOWED_CALLBACK_URLS} (exact), origins: {ALLOWED_CALLBACK_ORIGINS}, or any localhost URL"
             },
             status_code=400
         )
@@ -851,12 +882,12 @@ async def oauth2_token(request, provider: Optional[Any] = None):
                 status_code=400
             )
         
-        # Validate redirect_uri is whitelisted (allow localhost URLs or URLs in allowed list)
-        if redirect_uri not in ALLOWED_CALLBACK_URLS and not is_localhost_url(redirect_uri):
+        # Validate redirect_uri is whitelisted (allow localhost URLs, exact URL matches, or origin matches)
+        if not is_allowed_redirect_uri(redirect_uri):
             return JSONResponse(
                 content={
                     "error": "invalid_request",
-                    "error_description": f"redirect_uri '{redirect_uri}' is not whitelisted. Allowed: {ALLOWED_CALLBACK_URLS} or any localhost URL"
+                    "error_description": f"redirect_uri '{redirect_uri}' is not whitelisted. Allowed: {ALLOWED_CALLBACK_URLS} (exact), origins: {ALLOWED_CALLBACK_ORIGINS}, or any localhost URL"
                 },
                 status_code=400
             )

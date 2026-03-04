@@ -17,13 +17,21 @@ class OAuthConfig:
     def __init__(self, config_dict: dict):
         oauth_config = config_dict.get("oauth", {})
         
-        # Allowed callback URLs for OAuth redirects
+        # Allowed callback URLs for OAuth redirects (exact match)
         self.allowed_callback_urls = oauth_config.get(
             "allowed_callback_urls",
             [
                 "https://chatgpt.com/connector_platform_oauth_redirect",
                 "https://claude.ai/api/mcp/auth_callback"
             ]
+        )
+        
+        # Allowed callback origins for OAuth redirects (origin/prefix match).
+        # Any redirect_uri whose origin (scheme + host) matches an entry here
+        # will be accepted, regardless of the path. This supports clients like
+        # ChatGPT that use randomly-generated callback paths.
+        self.allowed_callback_origins: List[str] = oauth_config.get(
+            "allowed_callback_origins", []
         )
         
         # Trusted client IDs that can auto-register
