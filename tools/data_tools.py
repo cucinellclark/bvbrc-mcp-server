@@ -302,7 +302,7 @@ CUSTOM_STOPWORDS = {
     # overly generic science words
     "data", "information", "analysis", "study", "studies", "sample", "samples"
     "sequences", "summarize", "summary", "description", "describe", "details",
-    "files", "reads", "in"
+    "files", "reads", "in", "sra", "archive"
 }
 
 # Normalize plural/variant forms to canonical terms for consistent search
