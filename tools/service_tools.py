@@ -396,7 +396,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
     # Service-Specific Plan Tools (hybrid: LLM params + deterministic validation)
     # ---------------------------------------------------------------
 
-    @mcp.tool(name="plan_genome_assembly")
+    #@mcp.tool(name="plan_genome_assembly")
     async def plan_genome_assembly(
         params: Dict[str, Any] = None,
         token: Optional[str] = None
@@ -458,7 +458,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             params=params,
         )
 
-    @mcp.tool(name="plan_genome_annotation")
+    #@mcp.tool(name="plan_genome_annotation")
     async def plan_genome_annotation(
         params: Dict[str, Any] = None,
         token: Optional[str] = None
@@ -519,7 +519,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             params=params,
         )
 
-    @mcp.tool(name="plan_comparative_systems")
+    #@mcp.tool(name="plan_comparative_systems")
     async def plan_comparative_systems(
         params: Dict[str, Any] = None,
         token: Optional[str] = None
