@@ -301,11 +301,14 @@ CUSTOM_STOPWORDS = {
 
     # overly generic science words
     "data", "information", "analysis", "study", "studies", "sample", "samples"
+    "sequences", "summarize", "summary", "description", "describe", "details",
+    "files", "reads", "in"
 }
 
 # Normalize plural/variant forms to canonical terms for consistent search
 REPLACE_WORDS = {
     "proteins": "protein",
+    "flu": "influenza"
 }
 
 
