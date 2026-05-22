@@ -288,7 +288,7 @@ ASSEMBLY_DEFAULTS = {
     "normalize": False,
     "min_contig_len": 300,
     "min_contig_cov": 5,
-    "genome_size": "5M",
+    "genome_size": 5000000,
     "debug": 0,
 }
 

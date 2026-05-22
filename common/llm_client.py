@@ -3,8 +3,16 @@ LLM Client for internal model calls
 """
 import requests
 import json
-from typing import List, Dict, Optional
 import sys
+from pathlib import Path
+from typing import List, Dict, Optional
+
+# Make the shared config importable
+_CONFIG_DIR = str(Path(__file__).resolve().parent.parent.parent / "config")
+if _CONFIG_DIR not in sys.path:
+    sys.path.insert(0, _CONFIG_DIR)
+
+from llm_config import get_excluded_params
 
 
 class LLMClient:
@@ -48,6 +56,8 @@ class LLMClient:
             requests.RequestException: If the request fails
             ValueError: If the response is invalid
         """
+        excluded = get_excluded_params(self.model)
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -56,9 +66,11 @@ class LLMClient:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens
         }
+        if "temperature" not in excluded:
+            payload["temperature"] = temperature if temperature is not None else self.temperature
+        if "max_tokens" not in excluded:
+            payload["max_tokens"] = max_tokens if max_tokens is not None else self.max_tokens
         
         try:
             response = requests.post(
@@ -105,4 +117,3 @@ def create_llm_client_from_config(config: Dict) -> LLMClient:
         max_tokens=llm_config.get("max_tokens", 2000),
         timeout=llm_config.get("timeout", 60)
     )
-

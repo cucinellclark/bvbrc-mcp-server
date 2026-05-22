@@ -13,6 +13,7 @@ from tools.workspace_tools import register_workspace_tools
 from tools.group_tools import register_group_tools
 from tools.rag_database_tools import register_rag_database_tools
 from tools.sra_tools import register_sra_tools
+from tools.agent_chat_tool import register_agent_chat_tool
 from common.token_provider import TokenProvider
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
 import sys
@@ -73,6 +74,9 @@ register_rag_database_tools(mcp, config.rag_database)
 
 print("Registering SRA tools...", file=sys.stderr)
 register_sra_tools(mcp, config.sra_tools)
+
+print("Registering agent chat tool...", file=sys.stderr)
+register_agent_chat_tool(mcp, token_provider)
 
 # Add health check tool
 # @mcp.tool()

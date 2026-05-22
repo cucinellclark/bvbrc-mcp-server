@@ -773,7 +773,7 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 "source": "bvbrc-service"
             }
 
-    # @mcp.tool(name="submit_workflow")  # DISABLED: submission is now user-initiated via the Copilot API
+    @mcp.tool(name="submit_workflow")
     async def submit_workflow(
         workflow_id: Optional[str] = None,
         workflow_json: Optional[Dict[str, Any]] = None,

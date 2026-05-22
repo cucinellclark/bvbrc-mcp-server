@@ -20,6 +20,7 @@ from functions.data_functions import (
     query_faceted,
     lookup_parameters,
     list_solr_collections,
+    normalize_select,
     normalize_sort,
     build_filter,
     get_collection_fields,
@@ -310,6 +311,53 @@ REPLACE_WORDS = {
     "proteins": "protein",
     "flu": "influenza"
 }
+
+
+# ---------------------------------------------------------------------------
+# Auto-quoting for agent-generated Solr queries
+# ---------------------------------------------------------------------------
+
+# Regex: match  field_name:UnquotedWord1 Word2 ...WordN
+# where the words are NOT already quoted, not inside brackets/parens,
+# and are followed by AND/OR/NOT, another field:value, or end of string.
+_UNQUOTED_MULTIWORD_RE = re.compile(
+    r'([a-z_]\w*)'                          # field name
+    r':'                                    # colon
+    r'(?!["\[\{(*])'                        # not already quoted/range/group/wildcard
+    r'('                                    # start capture: value
+    r'[A-Z][a-z]+'                          # first capitalized word
+    r'(?:\s+(?!AND\b|OR\b|NOT\b|TO\b)[A-Za-z][A-Za-z.]+)+'  # 1+ additional words (not operators)
+    r')'                                    # end capture
+    r'(?=\s+(?:AND|OR|NOT)\b|\s*$)'         # lookahead: operator or end
+)
+
+
+def _auto_quote_query(query: str) -> str:
+    """
+    Auto-quote unquoted multi-word values in a Solr query string.
+
+    LLMs sometimes produce queries like:
+        organism:Escherichia coli AND property:"Virulence Factor"
+
+    This function detects the pattern `field:Word1 Word2` (capitalized words
+    that are not Solr operators) and wraps them in quotes:
+        organism:"Escherichia coli" AND property:"Virulence Factor"
+
+    Only applies to values that:
+      - Start with a capitalized word
+      - Contain at least two words
+      - Are NOT already quoted, in brackets (ranges), or in parentheses (groups)
+      - Are followed by a Solr operator (AND/OR/NOT) or end of string
+    """
+    if not query or query == "*:*":
+        return query
+
+    def _replacer(m: re.Match) -> str:
+        field = m.group(1)
+        value = m.group(2)
+        return f'{field}:"{value}"'
+
+    return _UNQUOTED_MULTIWORD_RE.sub(_replacer, query)
 
 
 def _tokenize_keywords(text: str) -> List[str]:
@@ -1434,4 +1482,155 @@ def register_data_tools(mcp: FastMCP, base_url: str, token_provider=None):
             return {
                 "error": f"Error retrieving genome sequence: {str(e)}",
                 "source": "bvbrc-mcp-data"
+            }
+
+    # -----------------------------------------------------------------
+    # Direct Solr query tools (no internal LLM planning)
+    #
+    # These tools accept pre-structured Solr queries and execute them
+    # directly against the BV-BRC Solr API.  They are intended for use
+    # by agent systems that produce their own query plans.
+    # -----------------------------------------------------------------
+
+    @mcp.tool(annotations={"readOnlyHint": True})
+    async def solr_query(
+        collection: str,
+        query: str = "*:*",
+        select: Optional[List[str]] = None,
+        sort: Optional[str] = None,
+        limit: int = 25,
+        count_only: bool = False,
+        cursor_id: Optional[str] = None,
+        token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute a direct Solr query against a BV-BRC collection.
+
+        Accepts raw Solr query syntax and executes it directly without
+        LLM-based query planning. Intended for use by agent systems that
+        produce their own structured queries.
+
+        Args:
+            collection: Solr collection name (e.g., "genome", "genome_amr", "sp_gene").
+            query: Solr query string using Lucene syntax.
+                Examples:
+                  - "genus:Salmonella AND host_name:Human"
+                  - "resistant_phenotype:Resistant AND antibiotic:ciprofloxacin"
+                  - 'property:"Virulence Factor" AND organism:"Escherichia coli"'
+                  - "*:*" (match all)
+            select: Fields to return. If None, returns default fields for the collection.
+            sort: Solr sort expression (e.g., "genome_name asc"). If None, uses default.
+            limit: Maximum records to return (1-10000, default 25).
+            count_only: If True, return only the total count (no documents).
+            cursor_id: Cursor ID for pagination. Use the nextCursorId from a previous
+                response to fetch the next page.
+            token: Authentication token (optional, auto-detected if token_provider is configured).
+
+        Returns:
+            If count_only: {"numFound": int, "source": "bvbrc-mcp-data"}
+            Otherwise: {"results": [...], "count": int, "numFound": int,
+                        "nextCursorId": str|null, "source": "bvbrc-mcp-data"}
+        """
+        headers = _build_auth_headers(token)
+
+        # Auto-quote unquoted multi-word values
+        safe_query = _auto_quote_query(query or "*:*")
+
+        # Build options dict
+        options: Dict[str, Any] = {}
+        select_list = normalize_select(select)
+        if select_list:
+            options["select"] = select_list
+        sort_expr = normalize_sort(sort)
+        if sort_expr:
+            options["sort"] = sort_expr
+
+        # Clamp limit
+        if limit < 1:
+            limit = 1
+        elif limit > 10000:
+            limit = 10000
+
+        try:
+            result = await query_direct(
+                core=collection,
+                filter_str=safe_query,
+                options=options if options else None,
+                base_url=_base_url,
+                headers=headers,
+                cursorId=cursor_id or "*",
+                countOnly=count_only,
+                batch_size=limit if not count_only else None,
+            )
+            result["source"] = "bvbrc-mcp-data"
+            return result
+
+        except Exception as e:
+            return {
+                "error": f"solr_query failed: {type(e).__name__}: {str(e)}",
+                "collection": collection,
+                "query": safe_query,
+                "source": "bvbrc-mcp-data",
+            }
+
+    @mcp.tool(annotations={"readOnlyHint": True})
+    async def solr_facet_query(
+        collection: str,
+        query: str = "*:*",
+        facet_fields: Optional[List[str]] = None,
+        facet_limit: int = 20,
+        facet_mincount: int = 1,
+        token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute a Solr facet query to get value distributions.
+
+        Returns grouped counts for the specified facet fields, with no
+        document bodies. Useful for "how many X per Y" or "top N by field"
+        questions.
+
+        Args:
+            collection: Solr collection name.
+            query: Solr query string to filter before faceting.
+            facet_fields: Fields to compute distributions for.
+            facet_limit: Maximum values per facet field (default 20).
+            facet_mincount: Minimum count to include (default 1).
+            token: Authentication token (optional, auto-detected if token_provider is configured).
+
+        Returns:
+            {"numFound": int, "facets": {field: [{"value": str, "count": int}, ...]},
+             "source": "bvbrc-mcp-data"}
+        """
+        headers = _build_auth_headers(token)
+
+        # Auto-quote unquoted multi-word values
+        safe_query = _auto_quote_query(query or "*:*")
+
+        if not facet_fields:
+            return {
+                "error": "solr_facet_query requires at least one facet_field",
+                "collection": collection,
+                "query": safe_query,
+                "source": "bvbrc-mcp-data",
+            }
+
+        try:
+            result = await query_faceted(
+                core=collection,
+                filter_str=safe_query,
+                facet_fields=facet_fields,
+                base_url=_base_url,
+                headers=headers,
+                facet_limit=facet_limit,
+                facet_mincount=facet_mincount,
+            )
+            result["source"] = "bvbrc-mcp-data"
+            return result
+
+        except Exception as e:
+            return {
+                "error": f"solr_facet_query failed: {type(e).__name__}: {str(e)}",
+                "collection": collection,
+                "query": safe_query,
+                "source": "bvbrc-mcp-data",
             }

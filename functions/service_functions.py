@@ -6,7 +6,7 @@ import time
 import json
 import os
 import sys
-import aiohttp
+import httpx
 
 CGA_INPUT_TYPES = {"reads", "contigs", "genbank"}
 CGA_RECIPES = {
@@ -440,31 +440,31 @@ async def query_tasks(
             # The service_url is like: https://p3.theseed.org/services/app_service
             base_service_url = api.service_url
             
-            async def fetch_log(session, task_data, log_type, url):
+            async def fetch_log(client, task_data, log_type, url):
                 """Fetch a single log file and attach only the last 100 lines to the task."""
                 try:
                     headers = {
                         'Authorization': f'Oauth {token}',
                         'X-Requested-With': 'false'
                     }
-                    async with session.get(url, headers=headers) as response:
-                        if response.status == 200:
-                            content = await response.text()
-                            
-                            # Get only the last 100 lines
-                            lines = content.splitlines()
-                            last_100_lines = lines[-100:] if len(lines) > 100 else lines
-                            truncated_content = '\n'.join(last_100_lines)
-                            
-                            task_data[log_type] = truncated_content
-                        else:
-                            task_data[log_type] = f"Error fetching {log_type}: HTTP {response.status}"
+                    response = await client.get(url, headers=headers)
+                    if response.status_code == 200:
+                        content = response.text
+                        
+                        # Get only the last 100 lines
+                        lines = content.splitlines()
+                        last_100_lines = lines[-100:] if len(lines) > 100 else lines
+                        truncated_content = '\n'.join(last_100_lines)
+                        
+                        task_data[log_type] = truncated_content
+                    else:
+                        task_data[log_type] = f"Error fetching {log_type}: HTTP {response.status_code}"
                 except Exception as e:
                     task_data[log_type] = f"Error fetching {log_type}: {str(e)}"
             
             # Collect all fetch operations
             fetch_operations = []
-            async with aiohttp.ClientSession() as session:
+            async with httpx.AsyncClient() as client:
                 for task_wrapper in result:
                     if isinstance(task_wrapper, dict):
                         # The result structure is: [{'task_id': {task_data}}]
@@ -477,14 +477,14 @@ async def query_tasks(
                             if fetch_stdout:
                                 stdout_url = f"{base_service_url}/task_info/{task_id}/stdout"
                                 fetch_operations.append(
-                                    fetch_log(session, task_data, 'stdout', stdout_url)
+                                    fetch_log(client, task_data, 'stdout', stdout_url)
                                 )
                             
                             # Construct stderr URL: {base_url}/task_info/{task_id}/stderr
                             if fetch_stderr:
                                 stderr_url = f"{base_service_url}/task_info/{task_id}/stderr"
                                 fetch_operations.append(
-                                    fetch_log(session, task_data, 'stderr', stderr_url)
+                                    fetch_log(client, task_data, 'stderr', stderr_url)
                                 )
                 
                 # Wait for all fetch operations to complete
