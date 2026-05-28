@@ -164,6 +164,40 @@ def _coerce_to_bool(value: Any) -> bool:
     return False
 
 
+_GENOME_SIZE_SUFFIXES = {"K": 1_000, "M": 1_000_000, "G": 1_000_000_000}
+
+
+def _normalize_genome_size(value: Any, default: int = 5000000) -> int:
+    """Normalize a genome size value to an integer in base pairs.
+
+    Handles plain integers, numeric strings, and human-readable suffixed
+    strings such as ``"5M"`` (5 000 000), ``"1.2G"`` (1 200 000 000), or
+    ``"500K"`` (500 000).  Falls back to *default* if parsing fails.
+    """
+    if isinstance(value, (int, float)):
+        return int(value)
+    if not isinstance(value, str):
+        return default
+    text = value.strip().upper()
+    if not text:
+        return default
+    # Check for a recognized suffix (K/M/G) at the end
+    suffix = text[-1]
+    if suffix in _GENOME_SIZE_SUFFIXES:
+        try:
+            return int(float(text[:-1]) * _GENOME_SIZE_SUFFIXES[suffix])
+        except (ValueError, TypeError):
+            return default
+    # No suffix — try plain numeric conversion
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return int(float(text))
+        except (ValueError, TypeError):
+            return default
+
+
 async def _persist_to_engine(manifest: Dict[str, Any], auth_token: str) -> Dict[str, Any]:
     """Persist a workflow manifest to the workflow engine. Returns workflow_id and status."""
     try:
@@ -389,7 +423,10 @@ async def plan_genome_assembly_fn(
     pilon_iter = _coerce_to_int(params.get("pilon_iter"), ASSEMBLY_DEFAULTS["pilon_iter"])
     min_contig_len = _coerce_to_int(params.get("min_contig_len"), ASSEMBLY_DEFAULTS["min_contig_len"])
     min_contig_cov = _coerce_to_int(params.get("min_contig_cov"), ASSEMBLY_DEFAULTS["min_contig_cov"])
-    genome_size = params.get("genome_size", ASSEMBLY_DEFAULTS["genome_size"])
+    genome_size = _normalize_genome_size(
+        params.get("genome_size", ASSEMBLY_DEFAULTS["genome_size"]),
+        default=ASSEMBLY_DEFAULTS["genome_size"],
+    )
     debug = _coerce_to_int(params.get("debug"), ASSEMBLY_DEFAULTS["debug"])
 
     # --- Resolve output path/file ---
@@ -530,11 +567,13 @@ async def plan_genome_annotation_fn(
     }
 
     # Optional params
+    # Store taxonomy_id as a string — the workflow engine's
+    # GenomeAnnotation Pydantic model declares it as Optional[str].
     taxonomy_id = params.get("taxonomy_id")
     if taxonomy_id is not None:
         taxonomy_id = _coerce_to_int(taxonomy_id)
         if taxonomy_id is not None and taxonomy_id > 0:
-            final_params["taxonomy_id"] = taxonomy_id
+            final_params["taxonomy_id"] = str(taxonomy_id)
 
     recipe = params.get("recipe")
     if recipe and isinstance(recipe, str) and recipe.strip():

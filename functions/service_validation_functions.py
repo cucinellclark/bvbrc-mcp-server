@@ -295,6 +295,8 @@ def get_service_schema_fn(service_name: str) -> Dict[str, Any]:
         "defaults": config.get("defaults", {}),
     }
 
+    if "optional_params" in config:
+        result["optional_params"] = config["optional_params"]
     if "enum_params" in config:
         result["enum_params"] = config["enum_params"]
     if "required_one_of" in config:
@@ -503,6 +505,16 @@ def validate_service_params(
                 coerced = _coerce_to_int(validated[key], default_val)
                 if coerced is not None:
                     validated[key] = coerced
+
+    # 8. Strip params whose values are None or empty-string.  The BV-BRC
+    #    backend can crash when optional ID fields (e.g. taxonomy_id) are
+    #    sent as null/empty — Solr generates an unparseable query like
+    #    "eq(taxon_id,)".  Required params were already validated above, and
+    #    defaults were already applied, so any remaining None/"" is an
+    #    unpopulated optional param that should be omitted entirely.
+    #    Note: False and 0 are legitimate values and are NOT stripped.
+    validated = {k: v for k, v in validated.items()
+                 if v is not None and v != ""}
 
     # Build result
     is_valid = len(errors) == 0 and len(missing) == 0

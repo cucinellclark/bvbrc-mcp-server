@@ -74,6 +74,12 @@ def _build_config_kwargs(
             config_kwargs["llm_api_key"] = llm_override["api_key"]
         if llm_override.get("model"):
             config_kwargs["llm_model"] = llm_override["model"]
+
+    # Forward auto-submit preference to the service agent config
+    auto_submit = ctx.get("auto_submit_preference")
+    if auto_submit:
+        config_kwargs["auto_submit_preference"] = auto_submit
+
     return config_kwargs
 
 
@@ -151,11 +157,16 @@ async def _run_service_agent(
     tool_trace = _build_tool_trace(result)
 
     # Service2: build answer from structured result
-    answer = result.pretty()
-    if result.status == "needs_input" and result.question:
+    # Lifecycle operations (submit/status/cancel) produce an operation_message;
+    # planning results use the full pretty() output.
+    if result.operation_message:
+        answer = result.operation_message
+    elif result.status == "needs_input" and result.question:
         answer = result.question
     elif result.status == "error" and result.error_message:
         answer = result.error_message
+    else:
+        answer = result.pretty()
 
     response: Dict[str, Any] = {
         "answer": answer,
@@ -174,6 +185,8 @@ async def _run_service_agent(
     if result.workflow_id:
         response["workflow_id"] = result.workflow_id
     response["persisted"] = result.persisted
+    if result.auto_submitted:
+        response["auto_submitted"] = True
     return response
 
 

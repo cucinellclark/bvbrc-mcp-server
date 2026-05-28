@@ -21,7 +21,9 @@ file_path = os.path.dirname(os.path.realpath(__file__))
 # Example line:
 # 127.0.0.1 - - [10/Jul/2025:21:15:05 +0000] "GET /test HTTP/1.1" 200 17 "-" "curl/7.81.0"
 
-access_log_path = os.path.join(file_path, "access.log")
+_centralized_log_dir = os.path.join(file_path, "..", "..", "..", "..", "DevEnvironment", "logs", "agents")
+os.makedirs(_centralized_log_dir, exist_ok=True)
+access_log_path = os.path.join(_centralized_log_dir, "utilities-access.log")
 access_logger = logging.getLogger("access")
 access_logger.setLevel(logging.INFO)
 

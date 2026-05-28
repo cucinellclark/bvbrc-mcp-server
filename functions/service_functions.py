@@ -350,14 +350,15 @@ async def start_genome_annotation_app(api: JsonRpcCaller, token: str = None, use
             contigs = ""
         if scientific_name is None:
             scientific_name = ""
-        if tax_id is None:
-            tax_id = ""
+        # Do NOT default tax_id to "" — same Solr crash risk as taxonomy_id.
+        # Leave as None so _filter_none_params strips it.
         if my_label is None:
             my_label = ""
         if reference_genome_id is None:
             reference_genome_id = ""
-        if taxonomy_id is None:
-            taxonomy_id = ""
+        # Do NOT default taxonomy_id to "" — the BV-BRC backend will
+        # try to query Solr with an empty taxon_id and crash.  Instead,
+        # leave it as None so _filter_none_params strips it.
         output_path, output_file = _set_default_output_paths(user_id, app_name, output_path, output_file)
         # Resolve relative paths to absolute paths
         output_path = _resolve_output_path(output_path, user_id)

@@ -321,13 +321,20 @@ class WorkflowEngineClient:
                 error_type="UNKNOWN_ERROR"
             ) from e
 
-    async def plan_workflow(self, workflow_json: Dict[str, Any], auth_token: str) -> Dict[str, Any]:
+    async def plan_workflow(
+        self,
+        workflow_json: Dict[str, Any],
+        auth_token: str,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Persist a workflow plan without validation or execution side effects.
 
         Args:
             workflow_json: Complete workflow manifest dictionary
             auth_token: BV-BRC authentication token
+            session_id: Optional Copilot chat session ID for completion
+                        webhook notifications
 
         Returns:
             Dictionary with workflow_id, status, workflow_name, and step_count
@@ -340,6 +347,8 @@ class WorkflowEngineClient:
 
         try:
             sanitized_payload = self._sanitize_workflow_payload(workflow_json)
+            if session_id:
+                sanitized_payload["session_id"] = session_id
             print(f"Planning workflow in workflow engine: {url}", file=sys.stderr)
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:

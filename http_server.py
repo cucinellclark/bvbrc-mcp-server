@@ -17,8 +17,39 @@ from tools.agent_chat_tool import register_agent_chat_tool
 from common.token_provider import TokenProvider
 from starlette.responses import JSONResponse, HTMLResponse, RedirectResponse
 import sys
+import logging
+import logging.handlers
+from pathlib import Path
 from common.auth import BvbrcOAuthProvider
 from common.config import get_config
+
+# ── Centralized file logging for MCP server ──────────────────────────────
+_MCP_LOG_DIR = Path(__file__).resolve().parent.parent.parent.parent / "DevEnvironment" / "logs" / "agents"
+_MCP_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+_mcp_formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+
+# Root logger: DEBUG to file, INFO to stderr
+_root = logging.getLogger()
+_root.setLevel(logging.DEBUG)
+
+_file_handler = logging.handlers.RotatingFileHandler(
+    _MCP_LOG_DIR / "mcp-server.log",
+    maxBytes=10 * 1024 * 1024,
+    backupCount=5,
+    encoding="utf-8",
+)
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(_mcp_formatter)
+_root.addHandler(_file_handler)
+
+_console_handler = logging.StreamHandler(sys.stderr)
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(_mcp_formatter)
+_root.addHandler(_console_handler)
+
+# Redirect print(..., file=sys.stderr) to also reach the log file
+_mcp_logger = logging.getLogger("mcp_server")
 
 # Load configuration
 config = get_config()

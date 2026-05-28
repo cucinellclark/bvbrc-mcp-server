@@ -12,8 +12,8 @@ const LOG_LEVELS = {
   ERROR: 3
 };
 
-// Configuration
-const LOG_DIR = path.join(__dirname, '..', 'logs');
+// Configuration — write session logs to centralized DevEnvironment/logs/agents/mcp-sessions/
+const LOG_DIR = path.resolve(__dirname, '..', '..', '..', '..', 'DevEnvironment', 'logs', 'agents', 'mcp-sessions');
 const CONSOLE_LOG_LEVEL = LOG_LEVELS.DEBUG; // Log everything to console
 const FILE_LOG_LEVEL = LOG_LEVELS.DEBUG; // Log everything to file
 

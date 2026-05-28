@@ -179,6 +179,10 @@
       "code",
       "domain"
     ],
+    "optional_params": {
+      "taxonomy_id": "NCBI Taxonomy ID (positive integer). Recommended when known — improves annotation accuracy.",
+      "recipe": "Annotation recipe. Leave unset for automatic selection."
+    },
     "defaults": {
       "code": 0,
       "domain": "auto",
@@ -220,7 +224,7 @@
       "normalize": false,
       "min_contig_len": 300,
       "min_contig_cov": 5,
-      "genome_size": "5M",
+      "genome_size": 5000000,
       "debug": 0
     },
     "enum_params": {
@@ -624,6 +628,10 @@
         "blastx",
         "tblastn",
         "tblastx"
+      ],
+      "db_precomputed_database": [
+        "bacteria-archaea",
+        "viral-reference"
       ]
     },
     "required_one_of": [
