@@ -4,6 +4,13 @@ Workflow composition functions for the Service Agent.
 Composes multiple planned service steps into a single workflow manifest
 with dependency chains. This is a deterministic alternative to the
 LLM-based workflow generation in workflow_functions.py.
+
+.. deprecated::
+    This module produces the legacy JSON manifest format. As of the GoWe
+    migration (M3), the service agent's ``compose.py`` calls
+    ``cwl.generator`` directly to produce CWL v1.2 documents instead of
+    calling ``compose_workflow_manifest()`` here.  This file is retained
+    for backward compatibility and will be removed in M6 cleanup.
 """
 
 import json

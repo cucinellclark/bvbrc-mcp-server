@@ -83,6 +83,11 @@ def _build_config_kwargs(
     if auto_submit:
         config_kwargs["auto_submit_preference"] = auto_submit
 
+    # Forward GoWe URL override if provided
+    gowe_url = ctx.get("gowe_url")
+    if gowe_url:
+        config_kwargs["gowe_url"] = gowe_url
+
     return config_kwargs
 
 
@@ -190,6 +195,11 @@ async def _run_service_agent(
     response["persisted"] = result.persisted
     if result.auto_submitted:
         response["auto_submitted"] = True
+    # GoWe-specific fields
+    if result.submission_id:
+        response["submission_id"] = result.submission_id
+    if result.cwl_document:
+        response["cwl_document"] = result.cwl_document
     return response
 
 
@@ -341,7 +351,8 @@ def register_agent_chat_tool(
               - tool_trace: List of tool calls the agent made internally.
 
             Additional keys by agent_type:
-              - service: manifest, workflow_plan, question, workflow_id, persisted
+              - service: manifest, workflow_plan, question, workflow_id, persisted,
+                         submission_id (GoWe), cwl_document (GoWe)
               - workspace: items, metadata, ui_grids, previews, paths_explored
               - analysis: output_files, metrics, previews, report_links, step_summaries
         """

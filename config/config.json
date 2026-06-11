@@ -34,6 +34,11 @@
         "timeout": 30,
         "enabled": true
     },
+    "gowe": {
+        "url": "https://gowe.software-smithy.org",
+        "timeout": 60,
+        "enabled": true
+    },
     "file_utilities": {
         "session_base_path": "/tmp/copilot/sessions",
         "max_file_size_mb": 100,
