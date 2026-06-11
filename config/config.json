@@ -6,9 +6,9 @@
     "similar_genome_finder_api_url": "https://p3.theseed.org/services/minhash_service",
     "authentication_url": "https://user.patricbrc.org/authenticate",
     "openid_config_url": "https://dev-9.bv-brc.org",
-    "mcp_url": "140.221.78.67",
+    "mcp_url": "140.221.78.15",
     "port2": 12009,
-    "port": 8053,
+    "port": 8153,
     "oauth": {
         "allowed_callback_urls": [
             "https://chatgpt.com/connector_platform_oauth_redirect",
@@ -30,7 +30,7 @@
         "timeout": 120
     },
     "workflow_engine": {
-        "api_url": "http://140.221.78.67:12008/api/v1",
+        "api_url": "http://140.221.78.67:12108/api/v1",
         "timeout": 30,
         "enabled": true
     },

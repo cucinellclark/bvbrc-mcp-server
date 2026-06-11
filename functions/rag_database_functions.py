@@ -13,6 +13,7 @@ def query_rag_helpdesk_func(
     query: str,
     top_k: Optional[int] = 5,
     config: Optional[dict] = None,
+    summarize: bool = True,
 ) -> Dict[str, Any]:
     """
     Query the RAG helpdesk index to retrieve relevant support and helpdesk documents.
@@ -25,6 +26,9 @@ def query_rag_helpdesk_func(
         top_k: Number of top results to return.
         config: Configuration dictionary with RAG / index settings.
                 Can include 'database_name' (default: 'helpdesk') and 'score_threshold' (default: 0.0).
+        summarize: If True (default), call the summarization LLM on retrieved
+                   documents. Set to False to return raw documents only (useful
+                   when the caller's own LLM will synthesize the answer).
 
     Returns:
         Dictionary with query results containing:
@@ -32,6 +36,7 @@ def query_rag_helpdesk_func(
         - count: Number of results returned
         - query: The original query string
         - index: The database name queried
+        - summary: (only when summarize=True) LLM-generated summary
     """
     if config is None:
         config = {}
@@ -76,16 +81,17 @@ def query_rag_helpdesk_func(
             "source": "bvbrc-rag-api",
         }
 
-        # Summarize retrieved documents as the final step
-        documents_text = [doc.get("content", "") for doc in results if doc.get("content")]
-        summary_output = summarize_helpdesk_documents(
-            query=query,
-            documents=documents_text,
-            model_config=config.get("summarization_model", {}),
-        )
-        result["summary"] = summary_output.get("summary", "")
-        if summary_output.get("error"):
-            result["summary_error"] = summary_output["error"]
+        # Optionally summarize retrieved documents
+        if summarize:
+            documents_text = [doc.get("content", "") for doc in results if doc.get("content")]
+            summary_output = summarize_helpdesk_documents(
+                query=query,
+                documents=documents_text,
+                model_config=config.get("summarization_model", {}),
+            )
+            result["summary"] = summary_output.get("summary", "")
+            if summary_output.get("error"):
+                result["summary_error"] = summary_output["error"]
 
         return result
 
