@@ -15,7 +15,7 @@ import traceback
 from fastmcp import FastMCP
 from common.json_rpc import JsonRpcCaller
 from common.llm_client import create_llm_client_from_config
-from common.workflow_engine_client import WorkflowEngineClient, WorkflowEngineError
+from common.gowe_client import GoWeClient, GoWeError
 from functions.service_functions import (
     enumerate_apps, start_date_app, start_genome_annotation_app, query_tasks, list_jobs,
     start_genome_assembly_app, start_comprehensive_genome_analysis_app, start_blast_app,
@@ -871,52 +871,59 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             }
 
         try:
-            # Load configuration
+            # Load configuration for GoWe URL
             config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'config.json')
 
             with open(config_path, 'r') as f:
                 config = json.load(f)
 
-            # Get workflow engine configuration
-            workflow_engine_config = config.get('workflow_engine', {})
+            # Get GoWe configuration
+            gowe_config = config.get('gowe', {})
+            gowe_url = gowe_config.get('url', 'https://gowe.software-smithy.org')
+            gowe_timeout = gowe_config.get('timeout', 60)
 
-            # Check if workflow engine is enabled
-            if not workflow_engine_config or not workflow_engine_config.get('enabled', False):
+            # Check if GoWe is enabled
+            if not gowe_config.get('enabled', True):
                 return {
-                    "error": "Workflow engine is disabled in configuration",
+                    "error": "GoWe workflow engine is disabled in configuration",
                     "errorType": "ENGINE_UNAVAILABLE",
-                    "hint": "Enable workflow_engine in config.json to submit workflows for execution",
+                    "hint": "Enable gowe in config.json to submit workflows for execution",
                     "source": "bvbrc-service"
                 }
 
-            # Setup workflow engine client
-            engine_url = workflow_engine_config.get('api_url', 'http://localhost:8000/api/v1')
-            engine_timeout = workflow_engine_config.get('timeout', 30)
+            client = GoWeClient(base_url=gowe_url, timeout=gowe_timeout)
 
-            client = WorkflowEngineClient(base_url=engine_url, timeout=engine_timeout)
-
-            # Check if engine is healthy
-            print("Checking workflow engine health...", file=sys.stderr)
-            is_healthy = await client.health_check()
+            # Check if GoWe is healthy
+            print("Checking GoWe workflow engine health...", file=sys.stderr)
+            is_healthy = await client.is_healthy()
             if not is_healthy:
-                print("Workflow engine health check failed", file=sys.stderr)
+                print("GoWe health check failed", file=sys.stderr)
                 return {
-                    "error": "Workflow engine is not available",
+                    "error": "GoWe workflow engine is not available",
                     "errorType": "ENGINE_UNAVAILABLE",
-                    "hint": f"Ensure workflow engine is running at {engine_url}",
-                    "submission_url": f"{engine_url}/workflows/{workflow_id}/submit",
+                    "hint": f"Ensure GoWe is running at {gowe_url}",
                     "source": "bvbrc-service"
                 }
 
-            result = await client.submit_planned_workflow(workflow_id, auth_token)
-            print(f"Workflow submitted successfully: {result.get('workflow_id', workflow_id)}", file=sys.stderr)
+            # GoWe submission requires inputs. For the MCP tool path,
+            # we submit with empty inputs (the workflow was already
+            # registered with its CWL definition). If the workflow
+            # requires inputs, they should have been provided at
+            # registration time via the service agent pipeline.
+            result = await client.create_submission(
+                workflow_id=workflow_id,
+                inputs={},
+                auth_token=auth_token,
+            )
+            submission_id = result.get('id', '')
+            print(f"Workflow submitted via GoWe: submission_id={submission_id}", file=sys.stderr)
 
             return {
-                "workflow_id": result.get('workflow_id', workflow_id),
-                "status": result.get('status', 'pending'),
+                "workflow_id": workflow_id,
+                "submission_id": submission_id,
+                "status": result.get('state', 'PENDING'),
                 "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "message": result.get('message', 'Workflow submitted for execution'),
-                "status_url": f"{engine_url}/workflows/{result.get('workflow_id', workflow_id)}/status",
+                "message": "Workflow submitted for execution via GoWe",
                 "call": {
                     "tool": "submit_workflow",
                     "arguments_executed": {
@@ -927,19 +934,19 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
                 "source": "bvbrc-service"
             }
 
-        except WorkflowEngineError as e:
-            print(f"Workflow engine error: {e}", file=sys.stderr)
+        except GoWeError as e:
+            print(f"GoWe error: {e}", file=sys.stderr)
             return {
                 "error": str(e),
                 "errorType": e.error_type if hasattr(e, 'error_type') else "SUBMISSION_FAILED",
-                "hint": "The workflow engine rejected the workflow. Check the error message for details.",
+                "hint": "GoWe rejected the submission. Check the error message for details.",
                 "source": "bvbrc-service"
             }
         except FileNotFoundError as e:
             return {
                 "error": f"Configuration file not found: {str(e)}",
                 "errorType": "CONFIGURATION_ERROR",
-                "hint": "Ensure config/config.json exists with 'workflow_engine' section",
+                "hint": "Ensure config/config.json exists with 'gowe' section",
                 "source": "bvbrc-service"
             }
         except Exception as e:

@@ -18,7 +18,14 @@ import time
 import uuid
 from typing import Dict, List, Any, Optional
 
-from common.workflow_engine_client import WorkflowEngineClient, WorkflowEngineError
+# Legacy workflow engine client — guarded import for backward compatibility.
+# These plan functions are currently disabled (MCP tool decorators commented out)
+# and will be removed in M6 cleanup.  The GoWeClient replaces this path.
+try:
+    from common.workflow_engine_client import WorkflowEngineClient, WorkflowEngineError
+except ImportError:
+    WorkflowEngineClient = None  # type: ignore[assignment,misc]
+    WorkflowEngineError = Exception  # type: ignore[assignment,misc]
 from common.json_rpc import JsonRpcCaller
 from functions.group_functions import resolve_group_path
 

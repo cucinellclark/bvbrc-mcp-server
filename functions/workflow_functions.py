@@ -1128,7 +1128,16 @@ async def create_and_execute_workflow_internal(
         Dictionary with workflow_id, status, and workflow_json if successful,
         or error information if any stage fails
     """
-    from common.workflow_engine_client import WorkflowEngineClient, WorkflowEngineError
+    # Legacy workflow engine client — guarded import.
+    # This function is called by the disabled plan_workflow MCP tool and
+    # will be removed in M6 cleanup.  GoWeClient replaces this path.
+    try:
+        from common.workflow_engine_client import WorkflowEngineClient, WorkflowEngineError
+    except ImportError:
+        return {
+            "error": "Legacy workflow engine client is no longer available. Use the GoWe-based service agent pipeline instead.",
+            "errorType": "DEPRECATED",
+        }
 
     # Stage 1: Generate workflow
     print("Stage 1: Generating workflow manifest...", file=sys.stderr)
