@@ -228,9 +228,9 @@ class TestWorkflows:
         assert result["id"] == "wf_abc"
         call_args = client._request.call_args
         body = call_args.kwargs["json_body"]
-        assert "content" in body
+        assert "cwl" in body
         # dict should be serialized to JSON string
-        assert json.loads(body["content"]) == cwl_doc
+        assert json.loads(body["cwl"]) == cwl_doc
 
     @pytest.mark.asyncio
     async def test_register_workflow_string(self):
@@ -243,7 +243,7 @@ class TestWorkflows:
 
         call_args = client._request.call_args
         body = call_args.kwargs["json_body"]
-        assert body["content"] == yaml_str
+        assert body["cwl"] == yaml_str
 
     @pytest.mark.asyncio
     async def test_register_workflow_with_metadata(self):

@@ -290,10 +290,11 @@ class GoWeClient:
         """
         body: Dict[str, Any] = {}
 
+        # GoWe expects the CWL document in a field named "cwl" (string)
         if isinstance(cwl_document, str):
-            body["content"] = cwl_document
+            body["cwl"] = cwl_document
         else:
-            body["content"] = json.dumps(cwl_document)
+            body["cwl"] = json.dumps(cwl_document)
 
         if name:
             body["name"] = name
