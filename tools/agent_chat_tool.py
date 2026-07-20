@@ -1,10 +1,10 @@
 """Unified agent chat tool -- MCP entry point for all agent LLM loops.
 
-Exposes a single ``agent_chat`` MCP tool that dispatches to one of five
-agent back-ends (data, service, workspace, helpdesk, analysis) based on
-the ``agent_type`` parameter.  Each agent's ``run_agent()`` function is
-imported lazily so the MCP server can start even if an individual agent
-has unmet deps.
+Exposes a single ``agent_chat`` MCP tool that dispatches to one of six
+agent back-ends (data, service, workspace, helpdesk, analysis, planning)
+based on the ``agent_type`` parameter.  Each agent's ``run_agent()``
+function is imported lazily so the MCP server can start even if an
+individual agent has unmet deps.
 
 This bridges the MCP server (external interface) to the agent modules
 (internal LLM loops with tool calling).
@@ -31,6 +31,7 @@ from fastmcp import Context, FastMCP
 #     ├── agents/workspace_agent/
 #     ├── agents/helpdesk_agent/
 #     ├── agents/analysis_agent/
+#     ├── agents/planning_agent/
 #     └── config/llm_config.py
 # ---------------------------------------------------------------------------
 
@@ -45,6 +46,7 @@ for _subdir in ("agents", "config"):
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _resolve_auth_token(token_provider, token: Optional[str]) -> Optional[str]:
     """Resolve auth token: HTTP header > provided param > none."""
@@ -120,6 +122,7 @@ def _error_response(message: str) -> Dict[str, Any]:
 # Per-agent dispatch helpers
 # ---------------------------------------------------------------------------
 
+
 async def _run_data_agent(
     query: str,
     config_kwargs: dict[str, Any],
@@ -132,11 +135,13 @@ async def _run_data_agent(
 
     config = AgentConfig(**config_kwargs)
     result = await run_agent(
-        query=query, config=config, context=ctx,
+        query=query,
+        config=config,
+        context=ctx,
         progress_callback=progress_callback,
     )
 
-    return {
+    response: Dict[str, Any] = {
         "answer": result.answer,
         "status": result.status,
         "sources": result.sources,
@@ -144,6 +149,9 @@ async def _run_data_agent(
         "elapsed_seconds": result.elapsed_seconds,
         "tool_trace": _build_tool_trace(result),
     }
+    if result.structured_data:
+        response["structured_data"] = result.structured_data
+    return response
 
 
 async def _run_service_agent(
@@ -158,7 +166,9 @@ async def _run_service_agent(
 
     config = AgentConfig(**config_kwargs)
     result = await run_agent(
-        query=query, config=config, context=ctx,
+        query=query,
+        config=config,
+        context=ctx,
         progress_callback=progress_callback,
     )
 
@@ -215,7 +225,9 @@ async def _run_workspace_agent(
 
     config = AgentConfig(**config_kwargs)
     result = await run_agent(
-        query=query, config=config, context=ctx,
+        query=query,
+        config=config,
+        context=ctx,
         progress_callback=progress_callback,
     )
 
@@ -250,7 +262,9 @@ async def _run_helpdesk_agent(
 
     config = AgentConfig(**config_kwargs)
     result = await run_agent(
-        query=query, config=config, context=ctx,
+        query=query,
+        config=config,
+        context=ctx,
         progress_callback=progress_callback,
     )
 
@@ -279,7 +293,9 @@ async def _run_analysis_agent(
 
     config = AgentConfig(**config_kwargs)
     result = await run_agent(
-        query=query, config=config, context=ctx,
+        query=query,
+        config=config,
+        context=ctx,
         progress_callback=progress_callback,
     )
 
@@ -301,9 +317,54 @@ async def _run_analysis_agent(
     }
 
 
+async def _run_planning_agent(
+    query: str,
+    config_kwargs: dict[str, Any],
+    ctx: dict[str, Any],
+    progress_callback,
+) -> Dict[str, Any]:
+    """Import and run the planning agent, returning a response dict."""
+    from planning_agent.agent import run_agent
+    from planning_agent.models import AgentConfig
+
+    # Planning agent doesn't use auto_submit_preference or gowe_url
+    config_kwargs.pop("auto_submit_preference", None)
+    config_kwargs.pop("gowe_url", None)
+
+    config = AgentConfig(**config_kwargs)
+    result = await run_agent(
+        query=query,
+        config=config,
+        context=ctx,
+        progress_callback=progress_callback,
+    )
+
+    tool_trace = _build_tool_trace(result)
+
+    response: Dict[str, Any] = {
+        "answer": result.answer,
+        "status": result.status,
+        "sources": result.sources,
+        "iterations_used": result.iterations_used,
+        "elapsed_seconds": result.elapsed_seconds,
+        "tool_trace": tool_trace,
+    }
+
+    # Planning-specific fields
+    if result.plan:
+        response["plan"] = result.plan
+    if result.clarification_questions:
+        response["clarification_questions"] = result.clarification_questions
+    if result.step_execution:
+        response["step_execution"] = result.step_execution
+
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
+
 
 def register_agent_chat_tool(
     mcp: FastMCP,
@@ -336,7 +397,7 @@ def register_agent_chat_tool(
 
         Args:
             query: Natural language question or request for the agent.
-            agent_type: Which agent to use: "data", "service", "workspace", "helpdesk", or "analysis".
+            agent_type: Which agent to use: "data", "service", "workspace", "helpdesk", "analysis", or "planning".
             context: Optional JSON string with additional context
                      (conversation history, workspace items, etc.).
             token: Optional auth token override.
@@ -367,15 +428,29 @@ def register_agent_chat_tool(
 
         try:
             if agent_type == "data":
-                return await _run_data_agent(query, config_kwargs, ctx, progress_callback)
+                return await _run_data_agent(
+                    query, config_kwargs, ctx, progress_callback
+                )
             elif agent_type == "service":
-                return await _run_service_agent(query, config_kwargs, ctx, progress_callback)
+                return await _run_service_agent(
+                    query, config_kwargs, ctx, progress_callback
+                )
             elif agent_type == "workspace":
-                return await _run_workspace_agent(query, config_kwargs, ctx, progress_callback)
+                return await _run_workspace_agent(
+                    query, config_kwargs, ctx, progress_callback
+                )
             elif agent_type == "helpdesk":
-                return await _run_helpdesk_agent(query, config_kwargs, ctx, progress_callback)
+                return await _run_helpdesk_agent(
+                    query, config_kwargs, ctx, progress_callback
+                )
             elif agent_type == "analysis":
-                return await _run_analysis_agent(query, config_kwargs, ctx, progress_callback)
+                return await _run_analysis_agent(
+                    query, config_kwargs, ctx, progress_callback
+                )
+            elif agent_type == "planning":
+                return await _run_planning_agent(
+                    query, config_kwargs, ctx, progress_callback
+                )
             else:
                 return _error_response(f"Unknown agent type: {agent_type}")
 

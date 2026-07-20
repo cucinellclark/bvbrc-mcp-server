@@ -175,11 +175,11 @@
   "genome_annotation": {
     "required_params": [
       "contigs",
-      "scientific_name",
       "code",
       "domain"
     ],
     "optional_params": {
+      "scientific_name": "Scientific name of the organism (e.g., 'Escherichia coli'). Recommended when known.",
       "taxonomy_id": "NCBI Taxonomy ID (positive integer). Recommended when known — improves annotation accuracy.",
       "recipe": "Annotation recipe. Leave unset for automatic selection."
     },
@@ -246,6 +246,34 @@
       "single_end_libs",
       "srr_ids"
     ],
+    "param_structure": {
+      "paired_end_libs": {
+        "type": "array",
+        "description": "Array of paired-end read library objects. Each object has read1 (required), read2 (required for true paired-end), and optional interleaved, read_orientation_outward, and platform fields.",
+        "item_fields": {
+          "read1": {"type": "string", "required": true, "description": "Full workspace path to forward reads FASTQ file (e.g., /user@bvbrc/home/folder/reads_R1.fastq.gz)"},
+          "read2": {"type": "string", "required": false, "description": "Full workspace path to reverse reads FASTQ file (e.g., /user@bvbrc/home/folder/reads_R2.fastq.gz). Omit if reads are interleaved."},
+          "interleaved": {"type": "boolean", "required": false, "default": false, "description": "True if read1 contains interleaved paired reads"},
+          "read_orientation_outward": {"type": "boolean", "required": false, "default": false, "description": "True if reads face outward (mate-pair)"},
+          "platform": {"type": "string", "required": false, "description": "Sequencing platform: illumina, pacbio, nanopore"}
+        },
+        "example": [{"read1": "/user@bvbrc/home/reads/sample_R1.fastq.gz", "read2": "/user@bvbrc/home/reads/sample_R2.fastq.gz", "interleaved": false, "read_orientation_outward": false, "platform": "infer"}]
+      },
+      "single_end_libs": {
+        "type": "array",
+        "description": "Array of single-end read library objects. Each object has read (required) and optional platform field.",
+        "item_fields": {
+          "read": {"type": "string", "required": true, "description": "Full workspace path to single-end reads FASTQ file"},
+          "platform": {"type": "string", "required": false, "description": "Sequencing platform: illumina, pacbio, nanopore"}
+        },
+        "example": [{"read": "/user@bvbrc/home/reads/sample.fastq.gz"}]
+      },
+      "srr_ids": {
+        "type": "array",
+        "description": "Array of SRA run accession IDs (strings). Each ID is an SRR accession.",
+        "example": ["SRR12345678"]
+      }
+    },
     "required_outputs": []
   },
   "proteome_comparison": {

@@ -38,11 +38,12 @@ logger = logging.getLogger(__name__)
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_config_file(filename: str) -> Dict:
     """Load a JSON config file from the config directory."""
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(script_dir, 'config', filename)
-    with open(config_path, 'r', encoding='utf-8') as f:
+    config_path = os.path.join(script_dir, "config", filename)
+    with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -60,7 +61,7 @@ def _build_manifest(
         "version": "1.0",
         "base_context": {
             "base_url": "https://www.bv-brc.org",
-            "workspace_output_folder": f"/{user_id}/home"
+            "workspace_output_folder": f"/{user_id}/home",
         },
         "steps": [
             {
@@ -68,14 +69,19 @@ def _build_manifest(
                 "app": app_api_name,
                 "params": params,
                 "outputs": outputs,
-                "depends_on": []
+                "depends_on": [],
             }
         ],
-        "workflow_outputs": list(outputs.values())
+        "workflow_outputs": list(outputs.values()),
     }
 
 
-def _default_output(user_id: str, app_api_name: str, output_path: Optional[str], output_file: Optional[str]):
+def _default_output(
+    user_id: str,
+    app_api_name: str,
+    output_path: Optional[str],
+    output_file: Optional[str],
+):
     """Resolve output_path and output_file with sensible defaults."""
     if not output_file:
         output_file = f"{app_api_name}_{time.strftime('%Y%m%d_%H%M%S')}"
@@ -83,7 +89,7 @@ def _default_output(user_id: str, app_api_name: str, output_path: Optional[str],
         output_path = f"/{user_id}/home/CopilotWorkflows"
     else:
         # Ensure path is rooted to user workspace
-        if not output_path.startswith('/'):
+        if not output_path.startswith("/"):
             output_path = f"/{user_id}/home/{output_path}"
     return output_path, output_file
 
@@ -91,7 +97,7 @@ def _default_output(user_id: str, app_api_name: str, output_path: Optional[str],
 def _output_patterns(app_api_name: str) -> Dict[str, str]:
     """Load output patterns from service_outputs.json for the given app."""
     try:
-        all_outputs = _load_config_file('service_outputs.json')
+        all_outputs = _load_config_file("service_outputs.json")
     except Exception:
         return {"job_output_path": "${params.output_path}/.${params.output_file}"}
 
@@ -101,7 +107,9 @@ def _output_patterns(app_api_name: str) -> Dict[str, str]:
     return patterns
 
 
-def _fuzzy_match_enum(value: str, valid_values: set, aliases: Optional[Dict[str, str]] = None) -> Optional[str]:
+def _fuzzy_match_enum(
+    value: str, valid_values: set, aliases: Optional[Dict[str, str]] = None
+) -> Optional[str]:
     """
     Attempt to match a value against valid enum values, case-insensitively.
     Also checks an optional alias map.
@@ -124,10 +132,10 @@ def _fuzzy_match_enum(value: str, valid_values: set, aliases: Optional[Dict[str,
         return lower_map[lower_val]
 
     # Underscore/hyphen normalization
-    normalized = lower_val.replace('_', '-')
+    normalized = lower_val.replace("_", "-")
     if normalized in lower_map:
         return lower_map[normalized]
-    normalized = lower_val.replace('-', '_')
+    normalized = lower_val.replace("-", "_")
     if normalized in lower_map:
         return lower_map[normalized]
 
@@ -165,7 +173,7 @@ def _coerce_to_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower().strip() in ('true', '1', 'yes')
+        return value.lower().strip() in ("true", "1", "yes")
     if isinstance(value, (int, float)):
         return bool(value)
     return False
@@ -205,48 +213,51 @@ def _normalize_genome_size(value: Any, default: int = 5000000) -> int:
             return default
 
 
-async def _persist_to_engine(manifest: Dict[str, Any], auth_token: str) -> Dict[str, Any]:
+async def _persist_to_engine(
+    manifest: Dict[str, Any], auth_token: str
+) -> Dict[str, Any]:
     """Persist a workflow manifest to the workflow engine. Returns workflow_id and status."""
     try:
         config_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'config', 'config.json'
+            "config",
+            "config.json",
         )
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             config = json.load(f)
 
-        engine_config = config.get('workflow_engine', {})
-        if not engine_config.get('enabled', False):
+        engine_config = config.get("workflow_engine", {})
+        if not engine_config.get("enabled", False):
             local_id = f"wf_local_{uuid.uuid4().hex[:12]}"
             return {
                 "workflow_id": local_id,
                 "status": "planned",
                 "persisted": False,
-                "warning": "Workflow engine is disabled; assigned local ID"
+                "warning": "Workflow engine is disabled; assigned local ID",
             }
 
-        engine_url = engine_config.get('api_url', 'http://localhost:8000/api/v1')
-        engine_timeout = engine_config.get('timeout', 30)
+        engine_url = engine_config.get("api_url", "http://localhost:8000/api/v1")
+        engine_timeout = engine_config.get("timeout", 30)
         client = WorkflowEngineClient(base_url=engine_url, timeout=engine_timeout)
 
         result = await client.plan_workflow(manifest, auth_token)
         workflow_id = (
-            result.get('workflow_id')
-            or result.get('id')
-            or (result.get('workflow') or {}).get('workflow_id')
+            result.get("workflow_id")
+            or result.get("id")
+            or (result.get("workflow") or {}).get("workflow_id")
         )
         if not workflow_id:
             # Fallback to register
             result = await client.register_workflow(manifest, auth_token)
             workflow_id = (
-                result.get('workflow_id')
-                or result.get('id')
-                or (result.get('workflow') or {}).get('workflow_id')
+                result.get("workflow_id")
+                or result.get("id")
+                or (result.get("workflow") or {}).get("workflow_id")
             )
 
         return {
             "workflow_id": workflow_id or f"wf_local_{uuid.uuid4().hex[:12]}",
-            "status": result.get('status', 'planned'),
+            "status": result.get("status", "planned"),
             "persisted": workflow_id is not None,
         }
 
@@ -257,7 +268,7 @@ async def _persist_to_engine(manifest: Dict[str, Any], auth_token: str) -> Dict[
             "workflow_id": local_id,
             "status": "planned",
             "persisted": False,
-            "warning": f"Could not persist to workflow engine: {str(e)}"
+            "warning": f"Could not persist to workflow engine: {str(e)}",
         }
     except Exception as e:
         print(f"Unexpected error persisting workflow: {e}", file=sys.stderr)
@@ -266,7 +277,7 @@ async def _persist_to_engine(manifest: Dict[str, Any], auth_token: str) -> Dict[
             "workflow_id": local_id,
             "status": "planned",
             "persisted": False,
-            "warning": f"Unexpected error: {str(e)}"
+            "warning": f"Unexpected error: {str(e)}",
         }
 
 
@@ -290,9 +301,9 @@ def _build_success_result(
         "call": {
             "tool": tool_name,
             "arguments_executed": {"params": params},
-            "replayable": True
+            "replayable": True,
         },
-        "source": "bvbrc-service"
+        "source": "bvbrc-service",
     }
     if persist_result.get("warning"):
         result["warning"] = persist_result["warning"]
@@ -306,8 +317,16 @@ def _build_success_result(
 # ---------------------------------------------------------------------------
 
 ASSEMBLY_VALID_RECIPES = {
-    "auto", "unicycler", "flye", "meta-flye", "canu",
-    "spades", "meta-spades", "plasmid-spades", "single-cell", "megahit"
+    "auto",
+    "unicycler",
+    "flye",
+    "meta-flye",
+    "canu",
+    "spades",
+    "meta-spades",
+    "plasmid-spades",
+    "single-cell",
+    "megahit",
 }
 
 ASSEMBLY_RECIPE_ALIASES = {
@@ -365,6 +384,7 @@ ANNOTATION_DEFAULTS = {
 # Genome Assembly
 # ---------------------------------------------------------------------------
 
+
 async def plan_genome_assembly_fn(
     user_id: str,
     auth_token: str,
@@ -403,13 +423,15 @@ async def plan_genome_assembly_fn(
             "errorType": "MISSING_PARAMETERS",
             "missing": ["paired_end_libs | single_end_libs | srr_ids"],
             "hint": "Provide sequencing reads as paired-end files, single-end files, or SRA Run IDs (e.g., SRR12345678)",
-            "source": "bvbrc-service"
+            "source": "bvbrc-service",
         }
 
     # --- Validate and coerce recipe ---
     recipe = params.get("recipe", "auto")
     if isinstance(recipe, str):
-        matched = _fuzzy_match_enum(recipe, ASSEMBLY_VALID_RECIPES, ASSEMBLY_RECIPE_ALIASES)
+        matched = _fuzzy_match_enum(
+            recipe, ASSEMBLY_VALID_RECIPES, ASSEMBLY_RECIPE_ALIASES
+        )
         if matched is None:
             return {
                 "error": f"Invalid assembly recipe: '{recipe}'",
@@ -417,7 +439,7 @@ async def plan_genome_assembly_fn(
                 "parameter": "recipe",
                 "valid_values": sorted(ASSEMBLY_VALID_RECIPES),
                 "hint": "Use 'auto' if unsure which assembly algorithm to use",
-                "source": "bvbrc-service"
+                "source": "bvbrc-service",
             }
         if matched != recipe:
             auto_corrections.append(f"recipe: '{recipe}' -> '{matched}'")
@@ -426,10 +448,18 @@ async def plan_genome_assembly_fn(
     # --- Coerce numeric and boolean fields ---
     trim = _coerce_to_bool(params.get("trim", ASSEMBLY_DEFAULTS["trim"]))
     normalize = _coerce_to_bool(params.get("normalize", ASSEMBLY_DEFAULTS["normalize"]))
-    racon_iter = _coerce_to_int(params.get("racon_iter"), ASSEMBLY_DEFAULTS["racon_iter"])
-    pilon_iter = _coerce_to_int(params.get("pilon_iter"), ASSEMBLY_DEFAULTS["pilon_iter"])
-    min_contig_len = _coerce_to_int(params.get("min_contig_len"), ASSEMBLY_DEFAULTS["min_contig_len"])
-    min_contig_cov = _coerce_to_int(params.get("min_contig_cov"), ASSEMBLY_DEFAULTS["min_contig_cov"])
+    racon_iter = _coerce_to_int(
+        params.get("racon_iter"), ASSEMBLY_DEFAULTS["racon_iter"]
+    )
+    pilon_iter = _coerce_to_int(
+        params.get("pilon_iter"), ASSEMBLY_DEFAULTS["pilon_iter"]
+    )
+    min_contig_len = _coerce_to_int(
+        params.get("min_contig_len"), ASSEMBLY_DEFAULTS["min_contig_len"]
+    )
+    min_contig_cov = _coerce_to_int(
+        params.get("min_contig_cov"), ASSEMBLY_DEFAULTS["min_contig_cov"]
+    )
     genome_size = _normalize_genome_size(
         params.get("genome_size", ASSEMBLY_DEFAULTS["genome_size"]),
         default=ASSEMBLY_DEFAULTS["genome_size"],
@@ -439,7 +469,9 @@ async def plan_genome_assembly_fn(
     # --- Resolve output path/file ---
     output_path = params.get("output_path")
     output_file = params.get("output_file")
-    output_path, output_file = _default_output(user_id, "GenomeAssembly2", output_path, output_file)
+    output_path, output_file = _default_output(
+        user_id, "GenomeAssembly2", output_path, output_file
+    )
 
     # --- Build final params ---
     final_params = {
@@ -465,19 +497,31 @@ async def plan_genome_assembly_fn(
     # --- Build manifest and persist ---
     outputs = _output_patterns("GenomeAssembly2")
     workflow_name = f"genome-assembly-{time.strftime('%Y%m%d-%H%M%S')}"
-    manifest = _build_manifest(workflow_name, "assemble_reads", "GenomeAssembly2", final_params, outputs, user_id)
+    manifest = _build_manifest(
+        workflow_name,
+        "assemble_reads",
+        "GenomeAssembly2",
+        final_params,
+        outputs,
+        user_id,
+    )
 
     persist_result = await _persist_to_engine(manifest, auth_token)
 
     return _build_success_result(
-        persist_result, workflow_name, "GenomeAssembly2",
-        final_params, auto_corrections, "plan_genome_assembly"
+        persist_result,
+        workflow_name,
+        "GenomeAssembly2",
+        final_params,
+        auto_corrections,
+        "plan_genome_assembly",
     )
 
 
 # ---------------------------------------------------------------------------
 # Genome Annotation
 # ---------------------------------------------------------------------------
+
 
 async def plan_genome_annotation_fn(
     user_id: str,
@@ -502,26 +546,25 @@ async def plan_genome_annotation_fn(
     missing = []
     if not contigs or not isinstance(contigs, str) or not contigs.strip():
         missing.append("contigs")
-    if not scientific_name or not isinstance(scientific_name, str) or not scientific_name.strip():
-        missing.append("scientific_name")
 
     if missing:
         hints = {
             "contigs": "Provide the workspace path to a contigs or FASTA file (e.g., /username/home/mycontigs.fasta)",
-            "scientific_name": "Provide the organism's scientific name (e.g., 'Escherichia coli')"
         }
         return {
             "error": f"Missing required parameter(s): {', '.join(missing)}",
             "errorType": "MISSING_PARAMETERS",
             "missing": missing,
             "hints": {m: hints[m] for m in missing},
-            "source": "bvbrc-service"
+            "source": "bvbrc-service",
         }
 
     # --- Validate and coerce domain ---
     domain = params.get("domain", ANNOTATION_DEFAULTS["domain"])
     if isinstance(domain, str):
-        matched = _fuzzy_match_enum(domain, ANNOTATION_VALID_DOMAINS, ANNOTATION_DOMAIN_ALIASES)
+        matched = _fuzzy_match_enum(
+            domain, ANNOTATION_VALID_DOMAINS, ANNOTATION_DOMAIN_ALIASES
+        )
         if matched is None:
             return {
                 "error": f"Invalid domain: '{domain}'",
@@ -529,7 +572,7 @@ async def plan_genome_annotation_fn(
                 "parameter": "domain",
                 "valid_values": sorted(ANNOTATION_VALID_DOMAINS),
                 "hint": "Use 'auto' if unsure",
-                "source": "bvbrc-service"
+                "source": "bvbrc-service",
             }
         if matched != domain:
             auto_corrections.append(f"domain: '{domain}' -> '{matched}'")
@@ -545,24 +588,33 @@ async def plan_genome_annotation_fn(
             "parameter": "code",
             "valid_values": sorted(ANNOTATION_VALID_CODES),
             "hint": "Use 0 for standard/auto genetic code",
-            "source": "bvbrc-service"
+            "source": "bvbrc-service",
         }
 
     # --- Coerce boolean fields ---
     public = _coerce_to_bool(params.get("public", ANNOTATION_DEFAULTS["public"]))
-    queue_nowait = _coerce_to_bool(params.get("queue_nowait", ANNOTATION_DEFAULTS["queue_nowait"]))
-    skip_indexing = _coerce_to_bool(params.get("skip_indexing", ANNOTATION_DEFAULTS["skip_indexing"]))
-    skip_workspace_output = _coerce_to_bool(params.get("skip_workspace_output", ANNOTATION_DEFAULTS["skip_workspace_output"]))
+    queue_nowait = _coerce_to_bool(
+        params.get("queue_nowait", ANNOTATION_DEFAULTS["queue_nowait"])
+    )
+    skip_indexing = _coerce_to_bool(
+        params.get("skip_indexing", ANNOTATION_DEFAULTS["skip_indexing"])
+    )
+    skip_workspace_output = _coerce_to_bool(
+        params.get(
+            "skip_workspace_output", ANNOTATION_DEFAULTS["skip_workspace_output"]
+        )
+    )
 
     # --- Resolve output path/file ---
     output_path = params.get("output_path")
     output_file = params.get("output_file")
-    output_path, output_file = _default_output(user_id, "GenomeAnnotation", output_path, output_file)
+    output_path, output_file = _default_output(
+        user_id, "GenomeAnnotation", output_path, output_file
+    )
 
     # --- Build final params ---
     final_params = {
         "contigs": contigs.strip(),
-        "scientific_name": scientific_name.strip(),
         "code": code,
         "domain": domain,
         "public": public,
@@ -574,6 +626,9 @@ async def plan_genome_annotation_fn(
     }
 
     # Optional params
+    if scientific_name and isinstance(scientific_name, str) and scientific_name.strip():
+        final_params["scientific_name"] = scientific_name.strip()
+
     # Store taxonomy_id as a string — the workflow engine's
     # GenomeAnnotation Pydantic model declares it as Optional[str].
     taxonomy_id = params.get("taxonomy_id")
@@ -589,19 +644,31 @@ async def plan_genome_annotation_fn(
     # --- Build manifest and persist ---
     outputs = _output_patterns("GenomeAnnotation")
     workflow_name = f"genome-annotation-{time.strftime('%Y%m%d-%H%M%S')}"
-    manifest = _build_manifest(workflow_name, "annotate_genome", "GenomeAnnotation", final_params, outputs, user_id)
+    manifest = _build_manifest(
+        workflow_name,
+        "annotate_genome",
+        "GenomeAnnotation",
+        final_params,
+        outputs,
+        user_id,
+    )
 
     persist_result = await _persist_to_engine(manifest, auth_token)
 
     return _build_success_result(
-        persist_result, workflow_name, "GenomeAnnotation",
-        final_params, auto_corrections, "plan_genome_annotation"
+        persist_result,
+        workflow_name,
+        "GenomeAnnotation",
+        final_params,
+        auto_corrections,
+        "plan_genome_annotation",
     )
 
 
 # ---------------------------------------------------------------------------
 # Comparative Systems
 # ---------------------------------------------------------------------------
+
 
 async def _resolve_genome_group_names(
     genome_groups: List[str],
@@ -690,13 +757,15 @@ async def plan_comparative_systems_fn(
             "errorType": "MISSING_PARAMETERS",
             "missing": ["genome_ids | genome_groups"],
             "hint": "Provide BV-BRC genome IDs (e.g., ['83332.12']) or workspace paths to genome groups",
-            "source": "bvbrc-service"
+            "source": "bvbrc-service",
         }
 
     # --- Resolve output path/file ---
     output_path = params.get("output_path")
     output_file = params.get("output_file")
-    output_path, output_file = _default_output(user_id, "ComparativeSystems", output_path, output_file)
+    output_path, output_file = _default_output(
+        user_id, "ComparativeSystems", output_path, output_file
+    )
 
     # --- Build final params ---
     final_params = {
@@ -711,11 +780,22 @@ async def plan_comparative_systems_fn(
     # --- Build manifest and persist ---
     outputs = _output_patterns("ComparativeSystems")
     workflow_name = f"comparative-systems-{time.strftime('%Y%m%d-%H%M%S')}"
-    manifest = _build_manifest(workflow_name, "compare_systems", "ComparativeSystems", final_params, outputs, user_id)
+    manifest = _build_manifest(
+        workflow_name,
+        "compare_systems",
+        "ComparativeSystems",
+        final_params,
+        outputs,
+        user_id,
+    )
 
     persist_result = await _persist_to_engine(manifest, auth_token)
 
     return _build_success_result(
-        persist_result, workflow_name, "ComparativeSystems",
-        final_params, auto_corrections, "plan_comparative_systems"
+        persist_result,
+        workflow_name,
+        "ComparativeSystems",
+        final_params,
+        auto_corrections,
+        "plan_comparative_systems",
     )

@@ -18,11 +18,12 @@ from typing import Any, Dict, List, Optional, Set
 # Shared helpers (canonical source — also imported by service_plan_functions)
 # ---------------------------------------------------------------------------
 
+
 def _load_config_file(filename: str) -> Dict:
     """Load a JSON config file from the config directory."""
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(script_dir, 'config', filename)
-    with open(config_path, 'r', encoding='utf-8') as f:
+    config_path = os.path.join(script_dir, "config", filename)
+    with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -53,10 +54,10 @@ def _fuzzy_match_enum(
         return lower_map[lower_val]
 
     # Underscore/hyphen normalization
-    normalized = lower_val.replace('_', '-')
+    normalized = lower_val.replace("_", "-")
     if normalized in lower_map:
         return lower_map[normalized]
-    normalized = lower_val.replace('-', '_')
+    normalized = lower_val.replace("-", "_")
     if normalized in lower_map:
         return lower_map[normalized]
 
@@ -94,7 +95,7 @@ def _coerce_to_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower().strip() in ('true', '1', 'yes')
+        return value.lower().strip() in ("true", "1", "yes")
     if isinstance(value, (int, float)):
         return bool(value)
     return False
@@ -113,7 +114,7 @@ def _default_output(
         output_path = f"/{user_id}/home/CopilotWorkflows"
     else:
         # Ensure path is rooted to user workspace
-        if not output_path.startswith('/'):
+        if not output_path.startswith("/"):
             output_path = f"/{user_id}/home/{output_path}"
     return output_path, output_file
 
@@ -121,7 +122,7 @@ def _default_output(
 def _output_patterns(app_api_name: str) -> Dict[str, str]:
     """Load output patterns from service_outputs.json for the given app."""
     try:
-        all_outputs = _load_config_file('service_outputs.json')
+        all_outputs = _load_config_file("service_outputs.json")
     except Exception:
         return {"job_output_path": "${params.output_path}/.${params.output_file}"}
 
@@ -143,8 +144,8 @@ def _get_service_mapping() -> Dict[str, str]:
     """Load and cache service_mapping.json (friendly_name -> api_name)."""
     global _SERVICE_MAPPING
     if _SERVICE_MAPPING is None:
-        data = _load_config_file('service_mapping.json')
-        _SERVICE_MAPPING = data.get('friendly_to_api', data)
+        data = _load_config_file("service_mapping.json")
+        _SERVICE_MAPPING = data.get("friendly_to_api", data)
     return _SERVICE_MAPPING
 
 
@@ -152,7 +153,7 @@ def _get_service_params() -> Dict[str, Dict]:
     """Load and cache service_required_params.json."""
     global _SERVICE_PARAMS
     if _SERVICE_PARAMS is None:
-        _SERVICE_PARAMS = _load_config_file('service_required_params.json')
+        _SERVICE_PARAMS = _load_config_file("service_required_params.json")
     return _SERVICE_PARAMS
 
 
@@ -169,35 +170,50 @@ def _get_api_name(service_name: str) -> Optional[str]:
 # Service categories for organization
 SERVICE_CATEGORIES = {
     "Genomics": [
-        "genome_assembly", "genome_annotation", "comprehensive_genome_analysis",
-        "similar_genome_finder", "genome_alignment",
+        "genome_assembly",
+        "genome_annotation",
+        "comprehensive_genome_analysis",
+        "similar_genome_finder",
+        "genome_alignment",
     ],
     "Phylogenomics": [
-        "bacterial_genome_tree", "gene_tree", "core_genome_mlst",
+        "bacterial_genome_tree",
+        "gene_tree",
+        "core_genome_mlst",
         "whole_genome_snp",
     ],
     "Metagenomics": [
-        "taxonomic_classification", "metagenomic_binning",
-        "metagenomic_read_mapping", "metacats",
+        "taxonomic_classification",
+        "metagenomic_binning",
+        "metagenomic_read_mapping",
+        "metacats",
     ],
     "Transcriptomics": [
-        "rnaseq", "expression_import",
+        "rnaseq",
+        "expression_import",
     ],
     "Proteomics": [
-        "proteome_comparison", "docking",
+        "proteome_comparison",
+        "docking",
     ],
     "Variation Analysis": [
-        "variation", "msa_snp_analysis",
+        "variation",
+        "msa_snp_analysis",
     ],
     "Sequence Analysis": [
-        "blast", "primer_design", "fastqutils",
+        "blast",
+        "primer_design",
+        "fastqutils",
     ],
     "Transposon Analysis": [
         "tnseq",
     ],
     "Viral Analysis": [
-        "viral_assembly", "sars_genome_analysis", "sars_wastewater_analysis",
-        "influenza_ha_subtype_conversion", "subspecies_classification",
+        "viral_assembly",
+        "sars_genome_analysis",
+        "sars_wastewater_analysis",
+        "influenza_ha_subtype_conversion",
+        "subspecies_classification",
     ],
     "Comparative Analysis": [
         "comparative_systems",
@@ -259,12 +275,14 @@ def list_services_fn() -> Dict[str, Any]:
 
     services = []
     for friendly_name, api_name in sorted(mapping.items()):
-        services.append({
-            "name": friendly_name,
-            "api_name": api_name,
-            "category": _SERVICE_TO_CATEGORY.get(friendly_name, "Other"),
-            "description": SERVICE_DESCRIPTIONS.get(friendly_name, ""),
-        })
+        services.append(
+            {
+                "name": friendly_name,
+                "api_name": api_name,
+                "category": _SERVICE_TO_CATEGORY.get(friendly_name, "Other"),
+                "description": SERVICE_DESCRIPTIONS.get(friendly_name, ""),
+            }
+        )
 
     return {
         "services": services,
@@ -305,6 +323,8 @@ def get_service_schema_fn(service_name: str) -> Dict[str, Any]:
         result["conditional_required"] = config["conditional_required"]
     if "required_outputs" in config:
         result["required_outputs"] = config["required_outputs"]
+    if "param_structure" in config:
+        result["param_structure"] = config["param_structure"]
 
     # Add output patterns
     output_patterns = _output_patterns(api_name)
@@ -317,6 +337,7 @@ def get_service_schema_fn(service_name: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # General service parameter validation
 # ---------------------------------------------------------------------------
+
 
 def validate_service_params(
     service_name: str,
@@ -462,8 +483,12 @@ def validate_service_params(
             require_one_of = condition.get("require_one_of", [])
             if require_one_of:
                 has_any_cond = any(
-                    validated.get(f) is not None and validated.get(f) != ""
-                    and (not isinstance(validated.get(f), list) or len(validated.get(f)) > 0)
+                    validated.get(f) is not None
+                    and validated.get(f) != ""
+                    and (
+                        not isinstance(validated.get(f), list)
+                        or len(validated.get(f)) > 0
+                    )
                     for f in require_one_of
                 )
                 if not has_any_cond:
@@ -477,7 +502,9 @@ def validate_service_params(
     # 5b. Warn about multiple SRA IDs for assembly-type services
     warnings: List[str] = []
     assembly_services = {
-        "genome_assembly", "comprehensive_genome_analysis", "viral_assembly",
+        "genome_assembly",
+        "comprehensive_genome_analysis",
+        "viral_assembly",
     }
     if service_name in assembly_services:
         srr_ids = validated.get("srr_ids", [])
@@ -492,7 +519,9 @@ def validate_service_params(
     # 6. Resolve output_path/output_file
     output_path = validated.get("output_path")
     output_file = validated.get("output_file")
-    output_path, output_file = _default_output(user_id, api_name, output_path, output_file)
+    output_path, output_file = _default_output(
+        user_id, api_name, output_path, output_file
+    )
     validated["output_path"] = output_path
     validated["output_file"] = output_file
 
@@ -513,8 +542,7 @@ def validate_service_params(
     #    defaults were already applied, so any remaining None/"" is an
     #    unpopulated optional param that should be omitted entirely.
     #    Note: False and 0 are legitimate values and are NOT stripped.
-    validated = {k: v for k, v in validated.items()
-                 if v is not None and v != ""}
+    validated = {k: v for k, v in validated.items() if v is not None and v != ""}
 
     # Build result
     is_valid = len(errors) == 0 and len(missing) == 0

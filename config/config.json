@@ -36,7 +36,7 @@
         "_note": "DEPRECATED: Legacy engine disabled. Use GoWe (gowe section) instead."
     },
     "gowe": {
-        "url": "https://gowe.software-smithy.org",
+        "url": "http://140.221.78.67:12009",
         "timeout": 60,
         "enabled": true
     },
