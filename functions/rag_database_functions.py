@@ -83,7 +83,9 @@ def query_rag_helpdesk_func(
 
         # Optionally summarize retrieved documents
         if summarize:
-            documents_text = [doc.get("content", "") for doc in results if doc.get("content")]
+            documents_text = [
+                doc.get("content", "") for doc in results if doc.get("content")
+            ]
             summary_output = summarize_helpdesk_documents(
                 query=query,
                 documents=documents_text,
@@ -204,10 +206,7 @@ def summarize_helpdesk_documents(
         response.raise_for_status()
         data = response.json()
         summary = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
+            data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
         )
 
         return {
@@ -220,6 +219,105 @@ def summarize_helpdesk_documents(
             "summary": "",
             "used_documents": documents,
             "error": f"Summarization failed: {str(e)}",
+        }
+
+
+def literature_rag_retrieve_func(
+    query: str,
+    top_k: int = 10,
+    use_graph: bool = False,
+    config: Optional[dict] = None,
+    auth_token: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Query the literature RAG retrieval service for relevant scientific publications.
+
+    Proxies to the Copilot API gateway's /copilot-api/rag/retrieve endpoint,
+    which forwards to the Coconut vector-search service.  Returns raw document
+    chunks with content, scores, and metadata (title, DOI, year, citations).
+
+    Args:
+        query: Natural-language search query (organism, gene, topic, etc.).
+        top_k: Maximum number of source documents to return (default 10).
+        use_graph: Whether to enable knowledge-graph-augmented retrieval.
+        config: Configuration dict.  Expected keys:
+                - ``literature_rag_url`` (default ``http://ash.cels.anl.gov:12006``)
+                - ``literature_rag_timeout_seconds`` (default 45)
+        auth_token: BV-BRC authorization token (``un=...|tokenid=...``).
+
+    Returns:
+        Dictionary with:
+        - sources: list of dicts with ``content``, ``score``, ``metadata``
+        - count: number of sources returned
+        - query: echo of the original query
+        On error, returns an ``error`` key with a description.
+    """
+    if config is None:
+        config = {}
+
+    base_url = config.get("literature_rag_url", "http://ash.cels.anl.gov:12006").rstrip(
+        "/"
+    )
+    timeout = config.get("literature_rag_timeout_seconds", 45)
+    retrieve_url = f"{base_url}/copilot-api/rag/retrieve"
+
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    if auth_token:
+        headers["Authorization"] = auth_token
+
+    payload: Dict[str, Any] = {
+        "query": query,
+        "top_k": top_k,
+        "use_graph": use_graph,
+    }
+
+    try:
+        response = requests.post(
+            retrieve_url,
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # The gateway returns the Coconut response as-is.
+        # The Literature.js frontend expects { sources: [...] }.
+        sources = data.get("sources", [])
+
+        return {
+            "sources": sources,
+            "count": len(sources),
+            "query": query,
+            "source": "literature-rag",
+        }
+
+    except requests.RequestException as e:
+        status_code = getattr(getattr(e, "response", None), "status_code", None)
+        detail = ""
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                detail = e.response.text[:500]
+            except Exception:
+                pass
+        return {
+            "sources": [],
+            "count": 0,
+            "query": query,
+            "error": f"Literature RAG request failed: {str(e)}",
+            "errorType": "LITERATURE_RAG_REQUEST_ERROR",
+            "status_code": status_code,
+            "detail": detail,
+            "source": "literature-rag",
+        }
+    except Exception as e:
+        return {
+            "sources": [],
+            "count": 0,
+            "query": query,
+            "error": f"Literature RAG unexpected error: {str(e)}",
+            "errorType": "LITERATURE_RAG_ERROR",
+            "source": "literature-rag",
         }
 
 
@@ -257,8 +355,7 @@ def list_publication_datasets_func(
         "count": 0,
         "query": query,
         "index": "publication_datasets",
-        "source": "bvbrc-rag"
+        "source": "bvbrc-rag",
     }
 
     return result
-

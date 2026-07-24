@@ -391,6 +391,185 @@ def register_service_tools(mcp: FastMCP, api: JsonRpcCaller, similar_genome_find
             return f"Error getting service submission schema: {str(e)}\n\nAvailable services: {', '.join(available)}"
 
 
+    # ---------------------------------------------------------------
+    # Similar Genome Finder (standalone tool — calls MinHash service directly)
+    # ---------------------------------------------------------------
+
+    @mcp.tool(name="find_similar_genomes", annotations={"readOnlyHint": True})
+    async def find_similar_genomes(
+        genome_id: Optional[str] = None,
+        fasta_file: Optional[str] = None,
+        max_pvalue: float = 0.01,
+        max_distance: float = 0.01,
+        max_hits: int = 50,
+        scope: str = "reference",
+        include_bacterial: bool = True,
+        include_viral: bool = True,
+        token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Find public genomes in BV-BRC that are similar to a query genome using
+        Mash/MinHash distance estimation. Returns genome IDs ranked by distance.
+
+        Provide exactly ONE of genome_id or fasta_file (not both).
+
+        USE THIS TOOL FOR:
+        - Finding the closest public genomes to a query genome
+        - Identifying related or similar organisms by genomic distance
+        - Pre-screening reference genomes before downstream analysis
+        - Answering "what genomes are similar to X?"
+
+        DO NOT USE THIS TOOL FOR:
+        - BLAST sequence similarity searches (use submit_service with blast)
+        - Phylogenetic tree building (use submit_service with bacterial_genome_tree)
+        - Genome annotation or assembly (use the appropriate service tools)
+
+        Args:
+            genome_id: A BV-BRC genome ID to search against (e.g., "83332.12").
+                       Mutually exclusive with fasta_file.
+            fasta_file: FULL workspace path to a FASTA or contigs file to search against
+                        (e.g., "/user@patricbrc.org/home/my_contigs.fasta").
+                        Must be an absolute workspace path starting with /, NOT just a filename.
+                        Mutually exclusive with genome_id.
+            max_pvalue: Maximum p-value threshold for matches (default: 0.01).
+                        Higher values return more distant matches.
+                        Options: 0.001, 0.01, 0.1, 1.0
+            max_distance: Maximum Mash distance threshold (default: 0.01).
+                          Lower values = more stringent.
+                          Options: 0.01, 0.05, 0.1, 0.5, 1.0
+            max_hits: Maximum number of similar genomes to return (default: 50).
+                      Options: 1, 10, 50, 100, 500
+            scope: Which public genomes to search.
+                   "reference" = reference and representative genomes only (default).
+                   "all" = all public genomes.
+            include_bacterial: Include bacterial/archaeal genomes (default: True).
+            include_viral: Include viral genomes (default: True).
+            token: Authentication token (optional — uses default if not provided).
+
+        Returns:
+            Dictionary with:
+            - results: list of matches, each with genome_id, distance, pvalue, kmer_counts
+            - count: number of matches
+            - query: echo of the query parameters used
+            - source: "bvbrc-similar-genome"
+        """
+        # --- auth ---
+        auth_token = token_provider.get_token(token)
+        if not auth_token:
+            return {
+                "error": "No authentication token available",
+                "errorType": "AUTHENTICATION_FAILED",
+                "source": "bvbrc-similar-genome"
+            }
+
+        # --- input validation ---
+        has_genome = bool(genome_id and genome_id.strip())
+        has_fasta = bool(fasta_file and fasta_file.strip())
+
+        if not has_genome and not has_fasta:
+            return {
+                "error": "Either genome_id or fasta_file is required",
+                "errorType": "INVALID_PARAMETERS",
+                "hint": "Provide a BV-BRC genome ID (e.g. '83332.12') or a workspace path to a FASTA file",
+                "source": "bvbrc-similar-genome"
+            }
+        if has_genome and has_fasta:
+            return {
+                "error": "Provide genome_id OR fasta_file, not both",
+                "errorType": "INVALID_PARAMETERS",
+                "hint": "Choose one input mode: a genome ID or a FASTA file path",
+                "source": "bvbrc-similar-genome"
+            }
+        if not include_bacterial and not include_viral:
+            return {
+                "error": "At least one of include_bacterial or include_viral must be true",
+                "errorType": "INVALID_PARAMETERS",
+                "source": "bvbrc-similar-genome"
+            }
+
+        # --- map scope to reference/representative flags ---
+        if scope == "reference":
+            inc_ref, inc_rep = 1, 1
+        else:
+            inc_ref, inc_rep = 0, 0
+
+        inc_bac = 1 if include_bacterial else 0
+        inc_vir = 1 if include_viral else 0
+
+        # --- build JSON-RPC call ---
+        if has_genome:
+            method = "Minhash.compute_genome_distance_for_genome2"
+            query_value = genome_id.strip()
+        else:
+            method = "Minhash.compute_genome_distance_for_fasta2"
+            query_value = fasta_file.strip()
+
+        params = [query_value, max_pvalue, max_distance, max_hits,
+                  inc_ref, inc_rep, inc_bac, inc_vir]
+        request_id = int(str(uuid.uuid4().int)[:12])
+
+        try:
+            raw = await similar_genome_finder_api.acall(
+                method, params, request_id, auth_token
+            )
+        except ValueError as e:
+            return {
+                "error": str(e),
+                "errorType": "API_ERROR",
+                "hint": "The MinHash service returned an error. Check that the genome ID or FASTA path is valid.",
+                "source": "bvbrc-similar-genome"
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "errorType": "API_ERROR",
+                "source": "bvbrc-similar-genome"
+            }
+
+        # --- parse results ---
+        # The service returns result[0] as a list of 4-tuples:
+        #   [genome_id, distance, pvalue, kmer_counts]
+        hits = []
+        try:
+            records = raw
+            if isinstance(raw, list) and len(raw) > 0 and isinstance(raw[0], list):
+                records = raw[0]
+
+            if isinstance(records, list):
+                for entry in records:
+                    if isinstance(entry, (list, tuple)) and len(entry) >= 4:
+                        hits.append({
+                            "genome_id": entry[0],
+                            "distance": entry[1],
+                            "pvalue": entry[2],
+                            "kmer_counts": entry[3],
+                        })
+                    elif isinstance(entry, dict):
+                        hits.append(entry)
+        except Exception:
+            # If parsing fails, return raw data so the caller can still inspect it
+            return {
+                "raw_result": raw,
+                "error": "Could not parse MinHash service response into structured results",
+                "errorType": "PARSE_ERROR",
+                "source": "bvbrc-similar-genome"
+            }
+
+        return {
+            "results": hits,
+            "count": len(hits),
+            "query": {
+                "genome_id": genome_id if has_genome else None,
+                "fasta_file": fasta_file if has_fasta else None,
+                "max_pvalue": max_pvalue,
+                "max_distance": max_distance,
+                "max_hits": max_hits,
+                "scope": scope,
+                "include_bacterial": include_bacterial,
+                "include_viral": include_viral,
+            },
+            "source": "bvbrc-similar-genome"
+        }
 
     # ---------------------------------------------------------------
     # Service-Specific Plan Tools (hybrid: LLM params + deterministic validation)

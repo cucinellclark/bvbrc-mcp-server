@@ -13,19 +13,21 @@ from fastmcp import FastMCP
 from functions.rag_database_functions import (
     query_rag_helpdesk_func,
     list_publication_datasets_func,
+    literature_rag_retrieve_func,
 )
+
 
 def register_rag_database_tools(mcp: FastMCP, config: dict = None):
     """
     Register all RAG database-related MCP tools with the FastMCP server.
-    
+
     Args:
         mcp: FastMCP server instance
         config: Configuration dictionary for RAG database settings
     """
     if config is None:
         config = {}
-    
+
     top_k_default = config.get("top_k_default", 5)
 
     @mcp.tool(name="helpdesk_service_usage")
@@ -53,7 +55,7 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
         - Broad cross-collection record search (use bvbrc_search_data with advanced=false)
         - Retrieving specific biological records or dataset content directly
         - Workspace file browsing/downloading tasks (use workspace tools)
-        
+
         Args:
             query: A help-guide or FAQ question about using BV-BRC features.
             top_k: Number of top results to return (uses config default if not provided).
@@ -85,7 +87,69 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
                 "errorType": "API_ERROR",
                 "results": [],
                 "count": 0,
-                "source": "bvbrc-rag"
+                "source": "bvbrc-rag",
+            }
+
+    @mcp.tool(name="search_literature")
+    def search_literature(
+        query: str,
+        top_k: Optional[int] = None,
+        use_graph: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Search scientific literature for relevant publications and extract passages.
+
+        Queries a vector-search index of scientific papers to find passages
+        relevant to a natural-language query about organisms, genes, proteins,
+        mutations, interactions, or any biological topic.
+
+        Returns raw document chunks with content, relevance scores, and
+        bibliographic metadata (title, DOI, year, citation count).  The
+        caller's LLM should synthesize the chunks into a coherent answer.
+
+        USE THIS TOOL FOR:
+        - Finding scientific literature about an organism, gene, or protein
+        - Retrieving published evidence for biological claims
+        - Searching for protein-protein interactions, mutations, or phenotypes in the literature
+        - Answering questions that require citing peer-reviewed sources
+
+        DO NOT USE THIS TOOL FOR:
+        - Querying structured BV-BRC data collections (use search_data)
+        - BV-BRC platform help/FAQ questions (use helpdesk_service_usage)
+        - Browsing user workspace files (use workspace tools)
+
+        Args:
+            query: Natural-language search query (e.g. "SARS-CoV-2 Spike protein interactions with ACE2").
+            top_k: Number of source passages to return (uses config default if not provided).
+            use_graph: Enable knowledge-graph-augmented retrieval (default False).
+
+        Returns:
+            Dictionary with:
+            - sources: list of documents, each with content, score, and metadata
+            - count: number of sources returned
+            - query: echo of the original query
+        """
+        exec_top_k = top_k if top_k is not None else top_k_default
+
+        print(
+            f"Searching literature: {query} (top_k={exec_top_k}, use_graph={use_graph})...",
+            file=sys.stderr,
+        )
+        try:
+            result = literature_rag_retrieve_func(
+                query=query,
+                top_k=exec_top_k,
+                use_graph=use_graph,
+                config=config,
+            )
+            return result
+        except Exception as e:
+            return {
+                "error": f"Error searching literature: {str(e)}",
+                "errorType": "API_ERROR",
+                "sources": [],
+                "count": 0,
+                "source": "literature-rag",
             }
 
     # @mcp.tool()
@@ -138,6 +202,5 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
                 "errorType": "API_ERROR",
                 "results": [],
                 "count": 0,
-                "source": "bvbrc-rag"
+                "source": "bvbrc-rag",
             }
-

@@ -37,10 +37,16 @@ from fastmcp import Context, FastMCP
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Add agents/, config/, and repo root (for shared/) to sys.path
 for _subdir in ("agents", "config"):
     _path = str(_REPO_ROOT / _subdir)
     if _path not in sys.path:
         sys.path.insert(0, _path)
+
+# Add repo root so ``shared`` package is importable (shared.tools, shared.prompts)
+_root_path = str(_REPO_ROOT)
+if _root_path not in sys.path:
+    sys.path.insert(0, _root_path)
 
 
 # ---------------------------------------------------------------------------
@@ -48,11 +54,35 @@ for _subdir in ("agents", "config"):
 # ---------------------------------------------------------------------------
 
 
+def _normalize_bvbrc_token(token: Optional[str]) -> Optional[str]:
+    """Return a raw PATRIC token, stripping a leading ``Bearer `` if present.
+
+    Downstream BV-BRC services (workspace, literature RAG on :12006, etc.)
+    expect ``un=...|tokenid=...``, not ``Bearer <token>``.
+    """
+    if not token:
+        return None
+    value = token.strip()
+    if value.lower().startswith("bearer "):
+        value = value[7:].strip()
+    return value or None
+
+
 def _resolve_auth_token(token_provider, token: Optional[str]) -> Optional[str]:
-    """Resolve auth token: HTTP header > provided param > none."""
+    """Resolve BV-BRC auth token.
+
+    IMPORTANT: MCP HTTP requests carry an OAuth Authorization header for MCP itself.
+    That header is *not* the BV-BRC token we need for downstream BV-BRC services.
+
+    Priority:
+    1. Explicit token passed to agent_chat (from orchestrator/gateway)
+    2. TokenProvider-derived token (e.g. stdio mode env var)
+    """
+    if token:
+        return _normalize_bvbrc_token(token)
     if token_provider:
-        return token_provider.get_token(token)
-    return token or None
+        return _normalize_bvbrc_token(token_provider.get_token(None))
+    return None
 
 
 def _parse_context(context: Optional[str]) -> dict[str, Any]:
@@ -116,6 +146,81 @@ def _error_response(message: str) -> Dict[str, Any]:
         "elapsed_seconds": 0.0,
         "tool_trace": [],
     }
+
+
+def _classify_agent_error(error: Exception, agent_type: str) -> str:
+    """Classify an agent error and return a user-friendly message.
+
+    Detects common error patterns (context length, auth, rate limits,
+    network) and provides actionable guidance instead of raw API errors.
+    """
+    error_str = str(error).lower()
+
+    # Context length / token limit errors
+    if any(
+        phrase in error_str
+        for phrase in [
+            "maximum context length",
+            "context_length_exceeded",
+            "too many tokens",
+            "prompt is too long",
+            "input_text",
+            "token limit",
+        ]
+    ):
+        return (
+            "The conversation has grown too large for the AI model to process. "
+            "This can happen when there is a lot of prior conversation history. "
+            "Please try starting a new conversation and re-asking your question."
+        )
+
+    # Authentication errors
+    if any(
+        phrase in error_str
+        for phrase in [
+            "401",
+            "unauthorized",
+            "authentication",
+            "invalid api key",
+        ]
+    ):
+        return (
+            "Authentication error. Your session may have expired. "
+            "Please try logging in again."
+        )
+
+    # Rate limit errors
+    if any(
+        phrase in error_str
+        for phrase in [
+            "429",
+            "rate_limit",
+            "rate limit",
+            "too many requests",
+        ]
+    ):
+        return (
+            "The AI service is temporarily overloaded. "
+            "Please wait a moment and try again."
+        )
+
+    # Network / timeout errors
+    if any(
+        phrase in error_str
+        for phrase in [
+            "timeout",
+            "connection",
+            "network",
+            "unreachable",
+        ]
+    ):
+        return (
+            f"The {agent_type} agent couldn't connect to a required service. "
+            "This may be a temporary network issue. Please try again."
+        )
+
+    # Default: include the raw error but with a friendlier wrapper
+    return f"The {agent_type} agent encountered an error: {error}"
 
 
 # ---------------------------------------------------------------------------
@@ -327,9 +432,8 @@ async def _run_planning_agent(
     from planning_agent.agent import run_agent
     from planning_agent.models import AgentConfig
 
-    # Planning agent doesn't use auto_submit_preference or gowe_url
+    # Planning agent doesn't use auto_submit_preference
     config_kwargs.pop("auto_submit_preference", None)
-    config_kwargs.pop("gowe_url", None)
 
     config = AgentConfig(**config_kwargs)
     result = await run_agent(
@@ -418,6 +522,26 @@ def register_agent_chat_tool(
               - analysis: output_files, metrics, previews, report_links, step_summaries
         """
         auth_token = _resolve_auth_token(token_provider, token)
+
+        # Safe auth diagnostics (do not log the token value)
+        if token:
+            print(
+                f"agent_chat: received token param (len={len(token)})",
+                file=sys.stderr,
+            )
+        else:
+            print("agent_chat: no token param provided", file=sys.stderr)
+
+        if auth_token:
+            _looks_like_patric = ("tokenid=" in auth_token) or ("un=" in auth_token)
+            print(
+                "agent_chat: resolved bvbrc_auth_token "
+                f"(len={len(auth_token)}, looks_like_patric={_looks_like_patric})",
+                file=sys.stderr,
+            )
+        else:
+            print("agent_chat: resolved bvbrc_auth_token is None", file=sys.stderr)
+
         ctx = _parse_context(context)
         config_kwargs = _build_config_kwargs(auth_token, ctx)
 
@@ -456,4 +580,4 @@ def register_agent_chat_tool(
 
         except Exception as e:
             traceback.print_exc(file=sys.stderr)
-            return _error_response(f"Agent error: {e}")
+            return _error_response(_classify_agent_error(e, agent_type))

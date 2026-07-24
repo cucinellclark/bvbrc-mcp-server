@@ -84,7 +84,9 @@
             "endpoint": "http://mango.cels.anl.gov:8003/v1/chat/completions",
             "apiKey": "EMPTY",
             "max_tokens": 1000
-        }
+        },
+        "literature_rag_url": "http://ash.cels.anl.gov:12006",
+        "literature_rag_timeout_seconds": 45
     },
     "conversation": {
         "facts": {
