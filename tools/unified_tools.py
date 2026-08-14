@@ -1,6 +1,6 @@
 """Unified agent tools exposed as MCP tools.
 
-Registers the same 23 tools that agents use internally as MCP tools,
+Registers the same 24 tools that agents use internally as MCP tools,
 so external MCP clients can use the same streamlined interface.
 
 These tools are prefixed with ``agent_`` to distinguish them from
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
-    """Register the 23 unified agent tools as MCP tools.
+    """Register the 24 unified agent tools as MCP tools.
 
     These wrap the shared tool implementations so external MCP clients
     can use the same tools that agents use internally.
@@ -59,6 +59,7 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
     from shared.tools.sra import get_sra_metadata
     from shared.tools.similar_genome import find_similar_genomes
     from shared.tools.literature import search_literature
+    from shared.tools.jobs import list_jobs
 
     def _resolve_token(bvbrc_token: Optional[str] = None) -> Optional[str]:
         """Resolve BV-BRC auth token from explicit param or token provider."""
@@ -474,4 +475,55 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
             config=config, headers=headers,
         )
 
-    logger.info("Registered %d unified agent tools (agent_* prefix)", 15)
+    # ---------------------------------------------------------------
+    # JOB LISTING
+    # ---------------------------------------------------------------
+
+    @mcp.tool()
+    async def agent_list_jobs(
+        limit: int = 20,
+        offset: int = 0,
+        sort_by: str = "submit_time",
+        sort_dir: str = "desc",
+        status: Optional[str] = None,
+        service: Optional[str] = None,
+        search: Optional[str] = None,
+        include_archived: bool = False,
+        bvbrc_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List user jobs with filtering, sorting, and pagination.
+
+        Args:
+            limit: Max jobs to return (default 20).
+            offset: Jobs to skip for pagination (default 0).
+            sort_by: Sort field (default 'submit_time').
+            sort_dir: Sort direction ('asc' or 'desc').
+            status: Filter by status (e.g. 'completed', 'failed').
+            service: Filter by service name (e.g. 'genome_assembly').
+            search: Free-text search filter.
+            include_archived: Include archived jobs.
+            bvbrc_token: BV-BRC auth token.
+        """
+        token = _resolve_token(bvbrc_token)
+        config = _build_config(token)
+        headers = _build_headers(token)
+        kwargs: Dict[str, Any] = {"config": config, "headers": headers}
+        if limit != 20:
+            kwargs["limit"] = limit
+        if offset != 0:
+            kwargs["offset"] = offset
+        if sort_by != "submit_time":
+            kwargs["sort_by"] = sort_by
+        if sort_dir != "desc":
+            kwargs["sort_dir"] = sort_dir
+        if status is not None:
+            kwargs["status"] = status
+        if service is not None:
+            kwargs["service"] = service
+        if search is not None:
+            kwargs["search"] = search
+        if include_archived:
+            kwargs["include_archived"] = include_archived
+        return await list_jobs(**kwargs)
+
+    logger.info("Registered %d unified agent tools (agent_* prefix)", 16)
