@@ -109,6 +109,8 @@ def _build_config_kwargs(
             config_kwargs["llm_api_key"] = llm_override["api_key"]
         if llm_override.get("model"):
             config_kwargs["llm_model"] = llm_override["model"]
+        if llm_override.get("max_tokens"):
+            config_kwargs["max_tokens"] = llm_override["max_tokens"]
 
     # Forward auto-submit preference to the service agent config
     auto_submit = ctx.get("auto_submit_preference")
