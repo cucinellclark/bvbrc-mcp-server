@@ -325,6 +325,8 @@ async def _run_service_agent(
     # GoWe-specific fields
     if result.submission_id:
         response["submission_id"] = result.submission_id
+    if result.submission_ids:
+        response["submission_ids"] = result.submission_ids
     if result.cwl_document:
         response["cwl_document"] = result.cwl_document
     return response

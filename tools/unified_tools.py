@@ -1,6 +1,6 @@
 """Unified agent tools exposed as MCP tools.
 
-Registers the same 24 tools that agents use internally as MCP tools,
+Registers the same 26 tools that agents use internally as MCP tools,
 so external MCP clients can use the same streamlined interface.
 
 These tools are prefixed with ``agent_`` to distinguish them from
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
-    """Register the 24 unified agent tools as MCP tools.
+    """Register the 26 unified agent tools as MCP tools.
 
     These wrap the shared tool implementations so external MCP clients
     can use the same tools that agents use internally.
@@ -55,7 +55,7 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
         get_workflow_inputs,
         submit_gowe_job,
     )
-    from shared.tools.groups import create_group
+    from shared.tools.groups import create_group, list_groups, get_group_ids
     from shared.tools.sra import get_sra_metadata
     from shared.tools.similar_genome import find_similar_genomes
     from shared.tools.literature import search_literature
@@ -373,6 +373,45 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
             config=config, headers=headers,
         )
 
+    @mcp.tool()
+    async def agent_list_groups(
+        group_type: str,
+        bvbrc_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List all genome or feature groups in the user's workspace.
+
+        Args:
+            group_type: 'genome_group' or 'feature_group'.
+            bvbrc_token: BV-BRC auth token.
+        """
+        token = _resolve_token(bvbrc_token)
+        config = _build_config(token)
+        headers = _build_headers(token)
+        return await list_groups(
+            group_type=group_type, config=config, headers=headers,
+        )
+
+    @mcp.tool()
+    async def agent_get_group_ids(
+        group_name: str,
+        group_type: str,
+        bvbrc_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get member IDs from a genome or feature group by name.
+
+        Args:
+            group_name: Name of the group (not a workspace path).
+            group_type: 'genome_group' or 'feature_group'.
+            bvbrc_token: BV-BRC auth token.
+        """
+        token = _resolve_token(bvbrc_token)
+        config = _build_config(token)
+        headers = _build_headers(token)
+        return await get_group_ids(
+            group_name=group_name, group_type=group_type,
+            config=config, headers=headers,
+        )
+
     # ---------------------------------------------------------------
     # SRA TOOLS
     # ---------------------------------------------------------------
@@ -526,4 +565,4 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
             kwargs["include_archived"] = include_archived
         return await list_jobs(**kwargs)
 
-    logger.info("Registered %d unified agent tools (agent_* prefix)", 16)
+    logger.info("Registered %d unified agent tools (agent_* prefix)", 18)
