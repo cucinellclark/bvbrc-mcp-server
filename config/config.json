@@ -94,7 +94,7 @@
         }
     },
     "sra_tools": {
-        "singularity_container": "/vol/patric3/production/containers/ubuntu-027-11.sif"
+        "singularity_container": "/vol/patric3/production/containers/ubuntu-176-build12-2.sif"
     }, 
     "data": {
         "default_snapshot_limit": 100,
