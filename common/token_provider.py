@@ -13,12 +13,30 @@ except ImportError:
 class TokenProvider:
     """Handles token retrieval for both stdio and HTTP modes"""
     
-    def __init__(self, mode: str = "stdio", config_path: str = "config/config.json", mcp_config_path: str = "config/mcp_config.json"):
+    def __init__(
+        self,
+        mode: str = "stdio",
+        config_path: str = "config/config.json",
+        mcp_config_path: str = "config/mcp_config.json",
+        oauth_provider=None,
+    ):
         self.mode = mode
         self.config_path = config_path
         self.mcp_config_path = mcp_config_path
         self._config_token = None
         self._mcp_config_token = None
+        self._oauth_provider = oauth_provider
+
+    def _resolve(self, token: Optional[str]) -> Optional[str]:
+        """Map an MCP bearer token to the PATRIC token used by BV-BRC APIs."""
+        if not token:
+            return token
+        resolver = getattr(self._oauth_provider, "resolve_patric_token", None)
+        if resolver:
+            resolved = resolver(token)
+            if resolved:
+                return resolved
+        return token
     
     def get_token(self, provided_token: Optional[str] = None) -> Optional[str]:
         """
@@ -36,12 +54,12 @@ class TokenProvider:
         if self.mode == "http":
             auth_header_token = self._get_token_from_request_headers()
             if auth_header_token:
-                return auth_header_token
+                return self._resolve(auth_header_token)
         
         # Then check provided token
         if provided_token:
             # If token is provided (HTTP mode), use it
-            return provided_token
+            return self._resolve(provided_token)
         
         if self.mode == "stdio":
             # STDIO mode: get from environment

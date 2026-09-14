@@ -108,7 +108,7 @@ class AppConfig:
         )
         
         # Server settings
-        self.mcp_url = config.get("mcp_url", "127.0.0.1")
+        self.mcp_url = os.environ.get("MCP_HOST", config.get("mcp_url", "127.0.0.1"))
         self.port = int(os.environ.get("PORT", config.get("port", 12010)))
         
         # OAuth configuration
