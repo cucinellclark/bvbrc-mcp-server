@@ -22,10 +22,12 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -53,6 +55,9 @@ ACCESS_TOKEN_EXPIRES_IN = _config.oauth.access_token_expires_in_seconds
 AUTH_CODE_EXPIRES_IN = _config.oauth.authorization_code_expires_in_seconds
 ALLOWED_CALLBACK_URLS = _config.oauth.allowed_callback_urls
 ALLOWED_CALLBACK_ORIGINS = _config.oauth.allowed_callback_origins
+CLIENT_STORE_PATH = Path(_config.oauth.client_store_path)
+if not CLIENT_STORE_PATH.is_absolute():
+    CLIENT_STORE_PATH = Path(__file__).resolve().parent.parent / CLIENT_STORE_PATH
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -139,7 +144,8 @@ class BvbrcOAuthProvider(OAuthProvider):
 
     This class implements the provider hooks:
     - ``authorize()`` → redirects to our ``/login`` page
-    - ``register_client()`` / ``get_client()`` → in-memory client store
+    - ``register_client()`` / ``get_client()`` → client store persisted to
+      ``CLIENT_STORE_PATH`` so registrations survive restarts
     - ``load_authorization_code()`` / ``exchange_authorization_code()`` →
       auth code store backed by PATRIC tokens
     - ``load_access_token()`` → verifies opaque MCP tokens (mapped to PATRIC)
@@ -165,8 +171,13 @@ class BvbrcOAuthProvider(OAuthProvider):
         )
         self.authentication_url = authentication_url
 
-        # In-memory stores
-        self._clients: Dict[str, OAuthClientInformationFull] = {}
+        # Registered clients persist on disk. MCP clients (Claude Code,
+        # ChatGPT, claude.ai) register once via /register and reuse that
+        # client_id on every subsequent re-auth; if we forget it on restart
+        # they get "Client ID '...' not found" from /authorize.
+        self._clients: Dict[str, OAuthClientInformationFull] = self._load_clients()
+
+        # In-memory stores (lost on restart — forces a re-login, not an error)
         self._auth_codes: Dict[str, Dict[str, Any]] = {}
         # JWT jti -> {patric_token, username, ...}
         self._issued_tokens: Dict[str, Dict[str, Any]] = {}
@@ -283,14 +294,49 @@ class BvbrcOAuthProvider(OAuthProvider):
     # ------------------------------------------------------------------
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
-        """Store a dynamically registered client."""
+        """Store a dynamically registered client and persist it to disk."""
         if client_info.client_id:
             self._clients[client_info.client_id] = client_info
+            self._save_clients()
             print(
                 f"[OAUTH] Registered client: {client_info.client_id} "
                 f"({client_info.client_name or 'unnamed'})",
                 file=sys.stderr,
             )
+
+    def _load_clients(self) -> Dict[str, OAuthClientInformationFull]:
+        """Load the persisted client registry (empty if missing/corrupt)."""
+        if not CLIENT_STORE_PATH.exists():
+            return {}
+        try:
+            raw = json.loads(CLIENT_STORE_PATH.read_text())
+        except (OSError, ValueError) as e:
+            print(f"[OAUTH] Could not read client store {CLIENT_STORE_PATH}: {e}", file=sys.stderr)
+            return {}
+
+        clients: Dict[str, OAuthClientInformationFull] = {}
+        for client_id, data in raw.items():
+            try:
+                clients[client_id] = OAuthClientInformationFull.model_validate(data)
+            except Exception as e:  # pydantic ValidationError
+                print(f"[OAUTH] Skipping bad client record {client_id}: {e}", file=sys.stderr)
+        print(f"[OAUTH] Loaded {len(clients)} registered client(s) from {CLIENT_STORE_PATH}", file=sys.stderr)
+        return clients
+
+    def _save_clients(self) -> None:
+        """Atomically write the client registry to disk (owner-only perms)."""
+        try:
+            CLIENT_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                cid: c.model_dump(mode="json", exclude_none=True)
+                for cid, c in self._clients.items()
+            }
+            tmp = CLIENT_STORE_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(payload, indent=2))
+            os.chmod(tmp, 0o600)  # records include client_secret
+            os.replace(tmp, CLIENT_STORE_PATH)
+        except OSError as e:
+            print(f"[OAUTH] Could not write client store {CLIENT_STORE_PATH}: {e}", file=sys.stderr)
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         """Look up a registered client by ID."""

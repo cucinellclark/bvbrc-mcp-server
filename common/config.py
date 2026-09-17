@@ -50,6 +50,14 @@ class OAuthConfig:
             "authorization_code_expires_in_seconds", 3600  # 1 hour
         )
 
+        # Where dynamically registered OAuth clients (RFC 7591) are persisted.
+        # Clients like Claude Code / ChatGPT register once and reuse their
+        # client_id forever, so the registry must survive server restarts.
+        # Relative paths are resolved against the project root.
+        self.client_store_path = oauth_config.get(
+            "client_store_path", "data/oauth_clients.json"
+        )
+
 
 class AppConfig:
     """Main application configuration."""

@@ -48,3 +48,6 @@ services/mcp/tools-for-prompt.txt
 # Tests / scratch
 # --------------------
 test_streaming.py
+
+# OAuth client registry (persisted dynamic registrations)
+data/
