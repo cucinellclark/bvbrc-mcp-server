@@ -557,6 +557,11 @@ async def query_faceted(
     return {
         "numFound": num_found,
         "facets": facets,
+        # Number of distinct values returned per field.  Equals the true
+        # distinct count when facet_limit was large enough to return every
+        # bucket (see solr_facet_query(count_distinct=True)); otherwise it is
+        # simply len(buckets) == facet_limit.
+        "bucket_counts": bucket_counts,
     }
 
 
