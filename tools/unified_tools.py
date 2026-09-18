@@ -79,9 +79,18 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
         return None
 
     def _build_config(token: Optional[str] = None) -> Any:
-        """Build a minimal config object for shared tools."""
+        """Build a minimal config object for shared tools.
+
+        MCP tool functions only need the auth token and API URLs — they never
+        make LLM calls. Provide placeholder values for the required LLM
+        fields so ``BaseAgentConfig`` validates without error.
+        """
         from shared.models import BaseAgentConfig
-        kwargs: Dict[str, Any] = {}
+        kwargs: Dict[str, Any] = {
+            "llm_base_url": "unused",
+            "llm_api_key": "unused",
+            "llm_model": "unused",
+        }
         if token:
             kwargs["bvbrc_auth_token"] = token
         return BaseAgentConfig(**kwargs)
@@ -135,6 +144,7 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
         facet_fields: List[str],
         facet_limit: int = 20,
         facet_mincount: int = 1,
+        count_distinct: bool = False,
         bvbrc_token: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get faceted counts (value distributions) for BV-BRC data fields.
@@ -145,6 +155,9 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
             facet_fields: Fields to get value distributions for.
             facet_limit: Max values per facet field (default 20).
             facet_mincount: Min count to include (default 1).
+            count_distinct: Return the exact number of distinct values per
+                field in distinct_counts (for "how many genomes..." questions
+                on record-per-genome collections); facet_limit is ignored.
             bvbrc_token: BV-BRC auth token.
         """
         token = _resolve_token(bvbrc_token)
@@ -153,6 +166,7 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
         return await facet_query(
             collection=collection, query=query, facet_fields=facet_fields,
             facet_limit=facet_limit, facet_mincount=facet_mincount,
+            count_distinct=count_distinct,
             config=config, headers=headers,
         )
 
