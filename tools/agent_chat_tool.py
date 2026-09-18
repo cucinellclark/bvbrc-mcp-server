@@ -132,6 +132,12 @@ def _build_config_kwargs(
     if workspace_path:
         config_kwargs["workspace_path"] = workspace_path
 
+    # Execution mode gates submit_gowe_job / create_group in
+    # shared.tools.execute_tool.  Anything but "execute" is plan.
+    config_kwargs["execution_mode"] = (
+        "execute" if ctx.get("execution_mode") == "execute" else "plan"
+    )
+
     return config_kwargs
 
 
@@ -555,6 +561,10 @@ def register_agent_chat_tool(
             print("agent_chat: resolved bvbrc_auth_token is None", file=sys.stderr)
 
         ctx = _parse_context(context)
+        # External MCP clients (ChatGPT / Claude) have their own tool-approval
+        # UX and no Plan/Execute toggle, so they run in execute mode unless
+        # the caller says otherwise.
+        ctx.setdefault("execution_mode", "execute")
         config_kwargs = _build_config_kwargs(auth_token, ctx)
 
         # Build progress callback that sends MCP progress notifications
