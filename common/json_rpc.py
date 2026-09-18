@@ -196,7 +196,17 @@ class JsonRpcCaller:
             raise
         except Exception as e:
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                print(f"error: {e.response.text}", file=sys.stderr)
+                body = (e.response.text or "").strip()
+                print(f"error: {body}", file=sys.stderr)
+                # Surface the service's own message to the caller — a bare
+                # "500 Internal Server Error" hides e.g. "object already
+                # exists" and sends agents into blind retries.
+                if body and isinstance(e, httpx.HTTPStatusError):
+                    raise httpx.HTTPStatusError(
+                        f"{e} — service response: {body[:500]}",
+                        request=e.request,
+                        response=e.response,
+                    ) from e
             else:
                 print(f"error: {str(e)}", file=sys.stderr)
             raise

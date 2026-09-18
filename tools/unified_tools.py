@@ -366,6 +366,7 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
         collection: str,
         query: str,
         limit: int = 500,
+        if_exists: str = "error",
         bvbrc_token: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a genome or feature group from a Solr query.
@@ -376,6 +377,8 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
             collection: Solr collection to query for IDs.
             query: Solr query string.
             limit: Max IDs to include (default 500).
+            if_exists: "error" (default) | "append" (add IDs to an existing
+                group, deduplicated) | "replace" (overwrite it).
             bvbrc_token: BV-BRC auth token.
         """
         token = _resolve_token(bvbrc_token)
@@ -384,6 +387,7 @@ def register_unified_tools(mcp: FastMCP, token_provider: Any = None):
         return await create_group(
             group_name=group_name, group_type=group_type,
             collection=collection, query=query, limit=limit,
+            if_exists=if_exists,
             config=config, headers=headers,
         )
 

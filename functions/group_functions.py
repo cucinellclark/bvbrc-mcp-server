@@ -556,15 +556,39 @@ async def get_group_ids(
 # ---------------------------------------------------------------------------
 
 
+IF_EXISTS_MODES = ("error", "append", "replace")
+
+
+def _parse_group_data(raw: Any) -> Optional[Dict[str, Any]]:
+    """Decode a group object's data payload (JSON string or dict)."""
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def create_group(
     api: JsonRpcCaller,
     name: str,
     id_list: List[str],
     group_type: str,
     token: str,
+    if_exists: str = "error",
 ) -> Dict[str, Any]:
     """
     Create a genome or feature group in the default folder.
+
+    The BV-BRC Workspace has no "add to group" API; the website appends by
+    reading the group, merging ``id_list`` and re-creating the object with
+    ``overwrite``.  *if_exists* exposes the same three behaviours:
+
+    - ``"error"`` (default): refuse with ``errorType: ALREADY_EXISTS`` when a
+      group of that name is already present.  (Without the check the
+      Workspace returns an opaque HTTP 500.)
+    - ``"append"``: merge the new ids into the existing group (deduplicated,
+      existing order preserved) and overwrite.
+    - ``"replace"``: overwrite the existing group with only the new ids.
 
     Parameters
     ----------
@@ -576,6 +600,8 @@ async def create_group(
         ``"genome_group"`` or ``"feature_group"``.
     token : str
         BV-BRC auth token.
+    if_exists : str
+        ``"error"`` | ``"append"`` | ``"replace"``.
 
     Returns
     -------
@@ -584,11 +610,22 @@ async def create_group(
         {
             "name": "GroupName",
             "path": "/user/home/Genome Groups/GroupName",
-            "count": N,
-            "message": "Created genome group 'GroupName' with N genome(s).",
+            "count": N,                 # members after the operation
+            "action": "created" | "appended" | "replaced",
+            "added": N,                 # append/replace: ids newly written
+            "already_present": N,       # append: ids that were already members
+            "previous_count": N,        # append/replace
+            "message": "...",
             "source": "bvbrc-workspace"
         }
     """
+    if if_exists not in IF_EXISTS_MODES:
+        return {
+            "error": f"if_exists must be one of {', '.join(IF_EXISTS_MODES)}; got {if_exists!r}",
+            "errorType": "INVALID_PARAMETERS",
+            "source": "bvbrc-workspace",
+        }
+
     if not name or not name.strip():
         return {
             "error": f"{GROUP_TYPE_CONFIG[group_type]['display_name']} name is required",
@@ -612,29 +649,125 @@ async def create_group(
     display = GROUP_TYPE_CONFIG[group_type]["display_name"]
     group_path = _default_group_path(user_id, group_type, name)
 
+    # Deduplicate the requested ids, preserving order.
+    new_ids = list(dict.fromkeys(str(i) for i in id_list if i))
+
+    # --- Existence check -------------------------------------------------
+    # Workspace.create on an existing path fails with a bare HTTP 500, so
+    # look first and give the caller an actionable error / the merge base.
+    existing = await _workspace_get(api, group_path, token, metadata_only=(if_exists != "append"))
+    exists = "error" not in existing
+    if not exists and existing.get("errorType") not in (None, "NOT_FOUND"):
+        # A real workspace failure (auth, outage) — surface it rather than
+        # attempting a create that will fail the same way.
+        return {
+            "error": f"Could not check whether {display} '{name}' exists: {existing['error']}",
+            "errorType": existing.get("errorType", "API_ERROR"),
+            "source": "bvbrc-workspace",
+        }
+
+    previous_ids: List[str] = []
+    previous_count: Optional[int] = None
+    if exists:
+        meta = existing.get("metadata", {})
+        auto = meta.get("autoMeta") or {}
+        if isinstance(auto, dict) and auto.get("item_count") is not None:
+            previous_count = auto["item_count"]
+        if if_exists == "error":
+            member_hint = f", {previous_count} members" if previous_count is not None else ""
+            return {
+                "error": (
+                    f"A {display} named '{name}' already exists at {group_path}"
+                    f"{member_hint}, created {meta.get('creation_time', 'unknown')}. "
+                    f"Nothing was changed. To add these {id_field}s to it call "
+                    f"create_group again with if_exists='append'; to overwrite it "
+                    f"use if_exists='replace'; or choose a different name."
+                ),
+                "errorType": "ALREADY_EXISTS",
+                "name": name,
+                "path": group_path,
+                "source": "bvbrc-workspace",
+            }
+        if if_exists == "append":
+            data = _parse_group_data(existing.get("data"))
+            if data is None or not isinstance(data.get("id_list"), dict):
+                return {
+                    "error": (
+                        f"{display} '{name}' exists but its data could not be read, "
+                        f"so ids cannot be appended safely. Use if_exists='replace' "
+                        f"to overwrite it, or choose a different name."
+                    ),
+                    "errorType": "INVALID_RESPONSE",
+                    "path": group_path,
+                    "source": "bvbrc-workspace",
+                }
+            previous_ids = [str(i) for i in (data["id_list"].get(id_field) or [])]
+            previous_count = len(previous_ids)
+
+    if if_exists == "append" and exists:
+        present = set(previous_ids)
+        added = [i for i in new_ids if i not in present]
+        final_ids = previous_ids + added
+        action = "appended"
+    elif if_exists == "replace" and exists:
+        added = new_ids
+        final_ids = new_ids
+        action = "replaced"
+    else:
+        added = new_ids
+        final_ids = new_ids
+        action = "created"
+
     content = {
-        "id_list": {id_field: id_list},
+        "id_list": {id_field: final_ids},
         "name": name,
     }
+    create_params: Dict[str, Any] = {"objects": [[group_path, group_type, {}, content]]}
+    if exists:
+        # Same mechanism as the website's WorkspaceManager.updateObject.
+        create_params["overwrite"] = 1
 
     try:
-        print(f"Creating {display}: {name}, path: {group_path}, ids: {len(id_list)}", file=sys.stderr)
+        print(
+            f"{action.capitalize()} {display}: {name}, path: {group_path}, "
+            f"ids: {len(final_ids)} (added {len(added)})",
+            file=sys.stderr,
+        )
 
         result = await api.acall(
             "Workspace.create",
-            [{"objects": [[group_path, group_type, {}, content]]}],
+            [create_params],
             1,
             token,
         )
 
-        return {
+        if action == "appended":
+            skipped = len(new_ids) - len(added)
+            message = (
+                f"Added {len(added)} new {id_field}(s) to {display} '{name}' "
+                f"({skipped} already present, {len(final_ids)} total)."
+            )
+        elif action == "replaced":
+            was = f" (was {previous_count})" if previous_count is not None else ""
+            message = f"Replaced {display} '{name}': now {len(final_ids)} {id_field}(s){was}."
+        else:
+            message = f"Created {display} '{name}' with {len(final_ids)} {id_field}(s)."
+
+        response: Dict[str, Any] = {
             "name": name,
             "path": group_path,
-            "count": len(id_list),
+            "count": len(final_ids),
+            "action": action,
+            "added": len(added),
             "data": result,
-            "message": f"Created {display} '{name}' with {len(id_list)} {id_field}(s).",
+            "message": message,
             "source": "bvbrc-workspace",
         }
+        if action == "appended":
+            response["already_present"] = len(new_ids) - len(added)
+        if action in ("appended", "replaced") and previous_count is not None:
+            response["previous_count"] = previous_count
+        return response
 
     except Exception as e:
         return {
