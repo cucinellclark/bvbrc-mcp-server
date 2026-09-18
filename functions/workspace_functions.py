@@ -905,11 +905,31 @@ async def workspace_read_range(api: JsonRpcCaller, path: str, token: str, start_
                 response.raise_for_status()
             content = response.content
 
-            try:
-                data = content.decode("utf-8")
-            except UnicodeDecodeError:
+            # Detect genuinely binary content (null bytes in first 8 KB
+            # or known magic bytes like PNG/JPG/ZIP/PDF) before decoding.
+            # Text chunks that start mid-codepoint (e.g. from a Range
+            # request on a UTF-8 file) are decoded with errors='replace'
+            # instead of being base64-encoded, which would make the
+            # content opaque to the LLM.
+            _first = content[:8192]
+            is_binary = b"\x00" in _first
+            if not is_binary:
+                _magic_sigs = [
+                    b"\x89PNG", b"\xff\xd8\xff", b"GIF8",
+                    b"PK\x03\x04", b"PK\x05\x06", b"%PDF",
+                    b"\x1f\x8b", b"\x42\x5a\x68",
+                    b"\xfd\x37\x7a\x58\x5a\x00", b"Rar!", b"\x7fELF",
+                ]
+                for sig in _magic_sigs:
+                    if content[:len(sig)] == sig:
+                        is_binary = True
+                        break
+
+            if is_binary:
                 base64_content = base64.b64encode(content).decode("utf-8")
                 data = f"<base64_encoded_data>{base64_content}</base64_encoded_data>"
+            else:
+                data = content.decode("utf-8", errors="replace")
 
             bytes_read = len(content)
             next_start = start_byte + bytes_read
@@ -937,6 +957,7 @@ async def workspace_read_range(api: JsonRpcCaller, path: str, token: str, start_
                 "bytes_read": bytes_read,
                 "total_size": total_size,
                 "is_complete": is_complete,
+                "is_binary": is_binary,
                 "requested_max_bytes": max_bytes,
                 "next_start_byte": next_start if not is_complete else None,
                 "source": "bvbrc-workspace"
