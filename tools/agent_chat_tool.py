@@ -85,6 +85,10 @@ def register_agent_chat_tool(
             print("agent_chat: resolved bvbrc_auth_token is None", file=sys.stderr)
 
         ctx = _parse_context(context)
+        # External MCP clients (ChatGPT / Claude) have their own tool-approval
+        # UX and no Plan/Execute toggle, so they run in execute mode unless
+        # the caller says otherwise.
+        ctx.setdefault("execution_mode", "execute")
 
         async def progress_callback(progress, total, message):
             if mcp_ctx is not None:
