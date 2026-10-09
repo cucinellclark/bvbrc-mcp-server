@@ -9,30 +9,128 @@ import time
 import requests
 
 
+#: Docs site the helpdesk corpus is scraped from (BV-BRC-Docs ``docroot``).
+BVBRC_DOCS_BASE_URL = "https://www.bv-brc.org/docs"
+
+#: Argonne's Cloudflare in front of www.bv-brc.org answers 403 to some default
+#: client user agents (``Python-urllib``), so name ourselves.
+_USER_AGENT = "bvbrc-copilot-helpdesk/1.0"
+
+
+def _ragstack_doc_path(filename: Optional[str]) -> Optional[str]:
+    """Map an uploaded RAGStack filename back to its docs path.
+
+    The helpdesk corpus is uploaded one file per doc, named from the doc's path
+    under BV-BRC-Docs ``docroot`` with ``/`` -> ``__`` and the extension -> ``.md``
+    (``quick_references__services__blast.md`` -> ``quick_references/services/blast``).
+    """
+    if not filename:
+        return None
+    stem = filename[:-3] if filename.endswith(".md") else filename
+    return stem.replace("__", "/")
+
+
+def _query_ragstack(
+    query: str, top_k: Optional[int], config: dict, auth_token: Optional[str]
+) -> List[Dict[str, Any]]:
+    """Retrieve helpdesk passages from a RAGStack collection (``POST /v1/retrieve``).
+
+    ``retrieval_mode`` and ``rerank`` default to ``vector`` / off: on the helpdesk
+    question set the deployment's cross-encoder reranker lowered hit@1 from 1.00
+    to 0.80 (Agents/current_plans/ragstack_helpdesk_reingest.md, step 4).
+    """
+    if not auth_token:
+        raise PermissionError(
+            "RAGStack helpdesk search needs the caller's BV-BRC token, and none was provided"
+        )
+    base_url = config.get("ragstack_base_url", "https://www.bv-brc.org/ragstack/clark/api")
+    token = auth_token.strip()
+    if not token.lower().startswith("bearer "):
+        token = f"Bearer {token}"
+    payload: Dict[str, Any] = {
+        "query": query,
+        "collection": config.get("ragstack_collection", "bvbrc_helpdesk"),
+        "top_k": top_k or 5,
+        "retrieval_mode": config.get("ragstack_retrieval_mode", "vector"),
+        "rerank": config.get("ragstack_rerank", False),
+    }
+    response = requests.post(
+        f"{base_url.rstrip('/')}/v1/retrieve",
+        json=payload,
+        headers={"Authorization": token, "User-Agent": _USER_AGENT},
+        timeout=config.get("ragstack_timeout_seconds", 45),
+    )
+    response.raise_for_status()
+
+    results = []
+    for src in response.json().get("sources", []):
+        md = src.get("metadata") or {}
+        doc_path = _ragstack_doc_path(md.get("filename"))
+        results.append(
+            {
+                "content": src.get("content", ""),
+                "score": src.get("score", 0.0),
+                "metadata": {
+                    "doc_path": doc_path,
+                    "docs_url": f"{BVBRC_DOCS_BASE_URL}/{doc_path}.html" if doc_path else None,
+                    "chunk_index": md.get("chunk_index"),
+                },
+            }
+        )
+    return results
+
+
+def _query_rag_api(query: str, top_k: Optional[int], config: dict, database_name: str) -> List[Dict[str, Any]]:
+    """Retrieve helpdesk passages from the legacy RAG API (``POST /query/{database}``)."""
+    rag_api_base_url = config.get("rag_api_base_url", "http://127.0.0.1:8000")
+    response = requests.post(
+        f"{rag_api_base_url.rstrip('/')}/query/{database_name}",
+        json={"query": query, "top_k": top_k, "score_threshold": config.get("score_threshold", 0.0)},
+        timeout=config.get("rag_api_timeout_seconds", 45),
+    )
+    response.raise_for_status()
+    return [
+        {
+            "content": doc.get("content", ""),
+            "score": doc.get("score", 0.0),
+            "metadata": doc.get("metadata", {}),
+        }
+        for doc in response.json().get("documents", [])
+    ]
+
+
 def query_rag_helpdesk_func(
     query: str,
     top_k: Optional[int] = 5,
     config: Optional[dict] = None,
     summarize: bool = True,
+    auth_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Query the RAG helpdesk index to retrieve relevant support and helpdesk documents.
 
     This function is intended to back the `query_rag_helpdesk` MCP tool.
-    It wraps the RAG_API service to query the helpdesk database.
+    The backend is ``config["helpdesk_backend"]``: ``"ragstack"`` queries the
+    ``bvbrc_helpdesk`` RAGStack collection with the caller's token; anything
+    else (the default) queries the legacy RAG API.
 
     Args:
         query: The search query string, typically a support or troubleshooting question.
         top_k: Number of top results to return.
-        config: Configuration dictionary with RAG / index settings.
-                Can include 'database_name' (default: 'helpdesk') and 'score_threshold' (default: 0.0).
+        config: Configuration dictionary (the MCP config's ``rag_database`` section).
+                RAGStack keys: ``ragstack_base_url``, ``ragstack_collection``,
+                ``ragstack_retrieval_mode``, ``ragstack_rerank``, ``ragstack_timeout_seconds``.
+                Legacy keys: ``database_name``, ``rag_api_base_url``, ``score_threshold``,
+                ``rag_api_timeout_seconds``.
         summarize: If True (default), call the summarization LLM on retrieved
                    documents. Set to False to return raw documents only (useful
                    when the caller's own LLM will synthesize the answer).
+        auth_token: The caller's BV-BRC token. Required by the RAGStack backend.
 
     Returns:
         Dictionary with query results containing:
         - results: List of retrieved documents with content, score, and metadata
+          (RAGStack results carry ``metadata.doc_path`` and ``metadata.docs_url``)
         - count: Number of results returned
         - query: The original query string
         - index: The database name queried
@@ -41,44 +139,26 @@ def query_rag_helpdesk_func(
     if config is None:
         config = {}
 
-    # Get database name from config, default to 'helpdesk'
-    database_name = config.get("database_name", "bvbrc_helpdesk")
-    score_threshold = config.get("score_threshold", 0.0)
-    rag_api_base_url = config.get("rag_api_base_url", "http://127.0.0.1:8000")
-    rag_api_timeout_seconds = config.get("rag_api_timeout_seconds", 45)
+    use_ragstack = config.get("helpdesk_backend") == "ragstack"
+    if use_ragstack:
+        database_name = config.get("ragstack_collection", "bvbrc_helpdesk")
+        source = "bvbrc-ragstack"
+    else:
+        database_name = config.get("database_name", "bvbrc_helpdesk")
+        source = "bvbrc-rag-api"
 
     try:
-        query_payload = {
-            "query": query,
-            "top_k": top_k,
-            "score_threshold": score_threshold,
-        }
-        query_url = f"{rag_api_base_url.rstrip('/')}/query/{database_name}"
-        rag_response = requests.post(
-            query_url,
-            json=query_payload,
-            timeout=rag_api_timeout_seconds,
-        )
-        rag_response.raise_for_status()
-        search_result = rag_response.json()
-
-        # Transform the RAG service response to match expected format
-        documents = search_result.get("documents", [])
-        results = [
-            {
-                "content": doc.get("content", ""),
-                "score": doc.get("score", 0.0),
-                "metadata": doc.get("metadata", {}),
-            }
-            for doc in documents
-        ]
+        if use_ragstack:
+            results = _query_ragstack(query, top_k, config, auth_token)
+        else:
+            results = _query_rag_api(query, top_k, config, database_name)
 
         result: Dict[str, Any] = {
             "results": results,
             "count": len(results),
             "query": query,
             "index": database_name,
-            "source": "bvbrc-rag-api",
+            "source": source,
         }
 
         # Optionally summarize retrieved documents
@@ -107,7 +187,7 @@ def query_rag_helpdesk_func(
             "used_documents": [],
             "error": f"RAG API request failed: {str(e)}",
             "errorType": "RAG_API_REQUEST_ERROR",
-            "source": "bvbrc-rag-api",
+            "source": source,
         }
     except Exception as e:
         # Return error result in expected format
@@ -120,9 +200,8 @@ def query_rag_helpdesk_func(
             "used_documents": [],
             "error": str(e),
             "errorType": "API_ERROR",
-            "source": "bvbrc-rag-api",
+            "source": source,
         }
-
 
 def summarize_helpdesk_documents(
     query: str,

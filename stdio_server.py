@@ -63,7 +63,7 @@ print("Registering group tools...", file=sys.stderr)
 register_group_tools(mcp, workspace_api, token_provider)
 
 print("Registering RAG database tools...", file=sys.stderr)
-register_rag_database_tools(mcp, rag_database_config)
+register_rag_database_tools(mcp, rag_database_config, token_provider)
 
 # Add health check tool
 @mcp.tool()

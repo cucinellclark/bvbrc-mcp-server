@@ -15,13 +15,15 @@ from functions.rag_database_functions import (
 )
 
 
-def register_rag_database_tools(mcp: FastMCP, config: dict = None):
+def register_rag_database_tools(mcp: FastMCP, config: dict = None, token_provider=None):
     """
     Register all RAG database-related MCP tools with the FastMCP server.
 
     Args:
         mcp: FastMCP server instance
         config: Configuration dictionary for RAG database settings
+        token_provider: TokenProvider for the caller's BV-BRC token, which the
+            RAGStack helpdesk backend (``helpdesk_backend: "ragstack"``) requires
     """
     if config is None:
         config = {}
@@ -32,6 +34,7 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
     def helpdesk_service_usage(
         query: str,
         top_k: Optional[int] = None,
+        token: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Search BV-BRC help guides/FAQs and return a short grounded usage answer.
@@ -57,6 +60,7 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
         Args:
             query: A help-guide or FAQ question about using BV-BRC features.
             top_k: Number of top results to return (uses config default if not provided).
+            token: BV-BRC auth token (optional; taken from the environment/config if not given).
 
         Returns:
             JSON string with query results:
@@ -77,6 +81,7 @@ def register_rag_database_tools(mcp: FastMCP, config: dict = None):
                 query=query,
                 top_k=exec_top_k,
                 config=config,
+                auth_token=token_provider.get_token(token) if token_provider else token,
             )
             return result
         except Exception as e:
